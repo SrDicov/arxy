@@ -10,10 +10,18 @@ ARXY_ROOT="/tmp/vreplace/root"
 export ARXY_ROOT
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
-# shellcheck source=../lib/60-hw.sh
-. "$HERE/../lib/60-hw.sh" >/dev/null 2>&1
-# shellcheck source=../lib/20-lifecycle.sh
-. "$HERE/../lib/20-lifecycle.sh" >/dev/null 2>&1
+# shellcheck source=../lib/60-detect.sh
+. "$HERE/../lib/60-detect.sh" >/dev/null 2>&1
+# shellcheck source=../lib/61-doctor.sh
+. "$HERE/../lib/61-doctor.sh" >/dev/null 2>&1
+# shellcheck source=../lib/62-json.sh
+. "$HERE/../lib/62-json.sh" >/dev/null 2>&1
+# shellcheck source=../lib/20-state.sh
+. "$HERE/../lib/20-state.sh" >/dev/null 2>&1
+# shellcheck source=../lib/21-setup.sh
+. "$HERE/../lib/21-setup.sh" >/dev/null 2>&1
+# shellcheck source=../lib/22-gc.sh
+. "$HERE/../lib/22-gc.sh" >/dev/null 2>&1
 D="$ARXY_DATA"
 R="$ARXY_ROOT"
 rm -rf "$D"; mkdir -p "$D"
@@ -34,6 +42,7 @@ mkbadroot() { # <$dir> : existe pero invalido (sin arch-release)
     : > "$1/usr/bin/bash"; chmod +x "$1/usr/bin/bash"
 }
 clean() { rm -rf "$R" "$R.old" "$R".new.* "$R".old.tmp.* "$R".swap.* "$D"/.image.partial.*; }
+declare -A FIX=()
 
 echo "== T1: inventory clasifica replace-root (R invalido + staging valido)"
 clean; mkbadroot "$R"; mkroot "$R.new.111" bueno
@@ -42,8 +51,8 @@ grep -q "^replace-root.*root.new.111" <<<"$out" && ok "T1 replace-root" || no "T
 
 echo "== T2: fix_probe pide reemplazar"
 clean; mkbadroot "$R"; mkroot "$R.new.222" bueno
-out="$(fix_probe staging-cleanup)"
-grep -q "^todo|" <<<"$out" && grep -q "reemplazar root con root.new.222" <<<"$out" && ok "T2 probe" || no "T2 probe ($out)"
+fix_probe staging-cleanup FIX
+[[ "${FIX[status]}" == todo && "${FIX[action]}" == *"reemplazar root con root.new.222"* ]] && ok "T2 probe" || no "T2 probe"
 
 echo "== T3: recover_staging deja .mark del staging, sin restos"
 clean; mkbadroot "$R"; mkroot "$R.new.333" bueno

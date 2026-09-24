@@ -52,7 +52,7 @@ To try a local image or your own build: `ARXY_IMAGE_URL=file:///ruta/al.tar.zst`
 | `arxy quickstart` | Inspects your install state and suggests what to do next. |
 | `arxy dedup` | Hardlinks identical files under `/usr`. Runs automatically after `install`/`update` when savings exceed 10 MB (disable with `ARXY_NO_AUTO_DEDUP=1`). |
 | `axy` | Short alias so you don't type `arxy` all day. |
-| `arxy install arxy-gaming [--dry-run]` | Deploys the gaming stack matched to your GPU (rewrites to `arxy-gaming-<vendor>`). The AUR part builds in userspace. For Steam, see below. Needs Level 1; the AUR part is still a draft. |
+| `arxy install arxy-gaming [--dry-run]` | Deploys the gaming stack matched to your GPU. If detection is inconclusive, use `arxy-gaming-amd`, `arxy-gaming-intel`, or `arxy-gaming-nvidia`. The AUR part builds in userspace and needs Level 1. |
 | `arxy host-bridge [--daemon\|--stop\|--status]` | Manages the host-bridge daemon, which forwards notifications and links from the sandbox to your host. |
 
 When something breaks: `arxy doctor` → `arxy doctor --fix` → `arxy quickstart`.
@@ -68,7 +68,7 @@ arxy doctor --json | jq '{nivel: .level, libc: .libc.kind, gpu: .gpu.vendor}'
 
 `setup` saves your hardware profile to `/var/lib/arxy/hardware.json` (atomic cache, `format: 1`, rewritten only on change). Then `arxy version --verbose` reads it and warns if your kernel or NVIDIA driver changed, while `doctor --json` always computes live. Refreshing the profile without `setup` is pending work.
 
-**Configuration:** system-wide at `/etc/arxy/arxy.conf`, per-user at `~/.config/arxy/config`. Everything can be overridden with environment variables (`ARXY_*` prefix).
+**Configuration:** system-wide at `/etc/arxy/arxy.conf`, per-user at `~/.config/arxy/config`. These are data files, not shell scripts: use one `ARXY_KEY=value` assignment per line, with optional single or double quotes. Shell expansion and command execution are deliberately disabled, including under `sudo`. Supported file keys are `ARXY_ROOT`, `ARXY_IMAGE_URL`, `ARXY_IMAGE_SHA256`, `ARXY_SIGNATURE_POLICY`, `ARXY_LEVEL`, `ARXY_GPG_CHECK`, `ARXY_KEEP_PKG_CACHE`, `ARXY_NO_AUTO_DEDUP`, `ARXY_NO_BRIDGE`, `ARXY_BRIDGE_ALLOWLIST`, and `ARXY_BRIDGE_BIN`. Documented runtime values can still be overridden through the environment.
 
 ## Architecture: the 2 execution levels
 
@@ -113,12 +113,13 @@ Bash only; the golden rule is no new dependencies.
 Before committing or opening a PR, pass these checks:
 
 ```bash
-make src/arxy && git diff --exit-code src/arxy   # byte-identical build check
-bash -n lib/*.sh src/arxy install.sh && shellcheck -S warning src/arxy install.sh
+make sync
+make verify               # syntax, ShellCheck when installed, deterministic suite, packaging copies
+make test-all              # optional: bridge/root/hardware tests; each keeps its own guards
 
 ```
 
-**On layout:** `lib/*.sh` is source of truth (the final `src/arxy` binary just concatenates it; the installer pulls it straight from the clone). `config/arxy.conf` is canonical too, and everything under `packaging/void/arxy/files/` are xbps packaging copies (CI fails on drift).
+**On layout:** `lib/*.sh` is source of truth (the final `src/arxy` binary just concatenates it; the installer pulls it straight from the clone). Modules have one responsibility: state/setup/GC (`20`–`22`), official packages/AUR/maintenance (`30`–`32`), and detection/doctor/JSON (`60`–`62`). `config/arxy.conf` is canonical too, and everything under `packaging/void/arxy/files/` are xbps packaging copies (CI fails on drift).
 
 Before pushing, run the sibling repo's test matrix (`arxy-image/tests/matrix.sh`, instructions in `arxy-image/tests/README.md`). Also read `AGENTS.md`: design rules learned from real bugs that cost blood to find. `CONTRIBUTING.md` has the full contributor flow.
 

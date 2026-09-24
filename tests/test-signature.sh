@@ -13,8 +13,12 @@ export ARXY_ROOT="$D/root" ARXY_DATA="$D/data" ARXY_VERSION_FILE="$D/version"
 mkdir -p "$ARXY_DATA"
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
-# shellcheck source=../lib/20-lifecycle.sh
-. "$HERE/../lib/20-lifecycle.sh" >/dev/null 2>&1
+# shellcheck source=../lib/20-state.sh
+. "$HERE/../lib/20-state.sh" >/dev/null 2>&1
+# shellcheck source=../lib/21-setup.sh
+. "$HERE/../lib/21-setup.sh" >/dev/null 2>&1
+# shellcheck source=../lib/22-gc.sh
+. "$HERE/../lib/22-gc.sh" >/dev/null 2>&1
 
 ok() { echo "PASS: $1"; }
 no() { echo "FAIL: $1${2:+ (tengo '$2')}"; FAIL=$((FAIL+1)); }

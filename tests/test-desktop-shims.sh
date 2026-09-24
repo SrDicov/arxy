@@ -58,8 +58,8 @@ if command -v python3 >/dev/null 2>&1; then
     printf 'tok-falso' > "$_bd/arxy-bridge.token"
     _env="$(XDG_RUNTIME_DIR="$_bd" ARXY_BRIDGE_BIN=/nonexistent bash -c '. "$0" >/dev/null 2>&1; . "$1" >/dev/null 2>&1; unset ARXY_BRIDGE_SOCKET ARXY_BRIDGE_TOKEN; bridge_env_l2; printf "SOCK=%s TOKEN=%s" "${ARXY_BRIDGE_SOCKET:-unset}" "${ARXY_BRIDGE_TOKEN:-unset}"' "$REPO/lib/00-head.sh" "$REPO/lib/80-bridge.sh" 2>&1)"
     [[ "$_env" == "SOCK=$_bd/arxy-bridge.sock TOKEN=tok-falso" ]] && ok "bridge_env_l2 exporta con socket vivo" || no "bridge_env_l2 exporta" "$_env"
-    _env="$(XDG_RUNTIME_DIR="$_bd" ARXY_NO_BRIDGE=1 ARXY_BRIDGE_BIN=/nonexistent bash -c '. "$0" >/dev/null 2>&1; . "$1" >/dev/null 2>&1; unset ARXY_BRIDGE_SOCKET ARXY_BRIDGE_TOKEN; bridge_env_l2; printf "SOCK=%s" "${ARXY_BRIDGE_SOCKET:-unset}"' "$REPO/lib/00-head.sh" "$REPO/lib/80-bridge.sh" 2>&1)"
-    [[ "$_env" == "SOCK=unset" ]] && ok "bridge_env_l2 respeta NO_BRIDGE" || no "bridge_env_l2 NO_BRIDGE" "$_env"
+    _env="$(XDG_RUNTIME_DIR="$_bd" ARXY_NO_BRIDGE=1 ARXY_BRIDGE_BIN=/nonexistent ARXY_BRIDGE_SOCKET=inyectado ARXY_BRIDGE_TOKEN=inyectado bash -c '. "$0" >/dev/null 2>&1; . "$1" >/dev/null 2>&1; bridge_env_l2; printf "SOCK=%s TOKEN=%s" "${ARXY_BRIDGE_SOCKET:-unset}" "${ARXY_BRIDGE_TOKEN:-unset}"' "$REPO/lib/00-head.sh" "$REPO/lib/80-bridge.sh" 2>&1)"
+    [[ "$_env" == "SOCK=unset TOKEN=unset" ]] && ok "bridge_env_l2 limpia env sin bridge" || no "bridge_env_l2 NO_BRIDGE" "$_env"
     rm -rf "$_bd"; trap - EXIT
 else
     echo "SKIP: bridge_env_l2 conductual (sin python3)"

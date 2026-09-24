@@ -13,9 +13,10 @@ bridge_bin() { # ruta al daemon (override ARXY_BRIDGE_BIN para tests)
     [[ -x "$d/../bridge/arxy-bridged" ]] && { echo "$d/../bridge/arxy-bridged"; return 0; }
     return 1
 }
+bridge_fallback_path() { echo "/tmp/arxy-bridge-$(id -u).sock"; }
 bridge_sock_path() { # path del socket (XDG o /tmp por UID)
     if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then echo "$XDG_RUNTIME_DIR/arxy-bridge.sock"; return 0; fi
-    echo "/tmp/arxy-bridge-$(id -u).sock"
+    bridge_fallback_path
 }
 bridge_pid_path() { # <sock> : pidfile al lado (misma base)
     echo "${1%.sock}.pid"
@@ -23,6 +24,21 @@ bridge_pid_path() { # <sock> : pidfile al lado (misma base)
 bridge_token_path() { # <sock> : token al lado (0600, del daemon)
     echo "${1%.sock}.token"
 }
+
+# Devuelve un socket utilizable o rc 1. Es la única resolución usada por L1
+# y L2: respeta NO_BRIDGE, intenta el daemon y descarta sockets huérfanos.
+bridge_active_socket() {
+    [[ -z "${ARXY_NO_BRIDGE:-}" ]] || return 1
+    ensure_bridge_daemon || true
+    local sock pidf
+    sock="$(bridge_sock_path)"
+    [[ -S "$sock" ]] || sock="$(bridge_fallback_path)"
+    [[ -S "$sock" ]] || return 1
+    pidf="$(bridge_pid_path "$sock")"
+    [[ ! -f "$pidf" ]] || bridge_pid_alive "$pidf" || return 1
+    printf '%s\n' "$sock"
+}
+
 bridge_pid_alive() { # <pidfile> : 0 si hay daemon vivo Y es el nuestro
     local pf="$1" pid=""
     [[ -f "$pf" ]] && pid="$(cat "$pf" 2>/dev/null || true)"
@@ -57,24 +73,14 @@ bridge_resolve_allowlist() { # nombres -> paths absolutos (avisa y salta)
 bridge_token_new() { # 64 hex de /dev/urandom (lo genera el daemon)
     head -c 32 /dev/urandom 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n' || true
 }
-bridge_env_l2() { # L2 no pasa por run_in (exec ld-linux directo) y
-    # las apps perdian el bridge en silencio. Misma resolucion que run_in
-    # (incluido fallback ) pero con export (el path vale tal cual,
-    # sin namespace). Best-effort: sin socket vivo, silencio total.
-    [[ -z "${ARXY_NO_BRIDGE:-}" ]] || return 0
-    ensure_bridge_daemon || true
-    local _bsock
-    _bsock="$(bridge_sock_path)"
-    [[ -S "$_bsock" ]] || _bsock="/tmp/arxy-bridge-$(id -u).sock"
-    [[ -S "$_bsock" ]] || return 0
-    local _bpid
-    _bpid="$(bridge_pid_path "$_bsock")"
-    if [[ ! -f "$_bpid" ]] || bridge_pid_alive "$_bpid"; then
-        export ARXY_BRIDGE_SOCKET="$_bsock"
-        local _btok
-        _btok="$(cat "$(bridge_token_path "$_bsock")" 2>/dev/null || true)"
-        [[ -n "$_btok" ]] && export ARXY_BRIDGE_TOKEN="$_btok"
-    fi
+bridge_env_l2() { # L2: exporta el bridge sin namespace, best-effort
+    local sock token
+    unset ARXY_BRIDGE_SOCKET ARXY_BRIDGE_TOKEN
+    sock="$(bridge_active_socket || true)"
+    [[ -n "$sock" ]] || return 0
+    export ARXY_BRIDGE_SOCKET="$sock"
+    token="$(cat "$(bridge_token_path "$sock")" 2>/dev/null || true)"
+    [[ -n "$token" ]] && export ARXY_BRIDGE_TOKEN="$token"
     return 0
 }
 bridge_session_notice() { # para doctor --fix --apply (yMsgs): avisa
@@ -109,15 +115,22 @@ ensure_bridge_daemon() { # arranca si no hay vivo (best-effort: nunca falla run)
     return $rc
 }
 cmd_host_bridge() { # [--daemon|--stop|--status] [--socket P] [--allowed-cmd B...]
+    local usage="host-bridge [--daemon|--stop|--status] [--socket P] [--allowed-cmd BIN...]"
     local mode="" sock="" bin="" tokf=""
     local -a allow=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --daemon|--stop|--status) mode="$1"; shift ;;
-            --socket) sock="${2:?falta path de --socket}"; shift 2 ;;
-            --allowed-cmd) allow+=("${2:?falta binario de --allowed-cmd}"); shift 2 ;;
-            -h|--help) echo "uso: $PROG host-bridge [--daemon|--stop|--status] [--socket P] [--allowed-cmd BIN...]"; return 0 ;;
-            *) die "uso: $PROG host-bridge [--daemon|--stop|--status] [--socket P] [--allowed-cmd BIN...]" ;;
+            --daemon|--stop|--status)
+                [[ -z "$mode" ]] || die "uso: $PROG $usage (elige un solo modo)"
+                mode="$1"; shift ;;
+            --socket)
+                [[ $# -ge 2 ]] || die "uso: $PROG $usage"
+                sock="$2"; shift 2 ;;
+            --allowed-cmd)
+                [[ $# -ge 2 ]] || die "uso: $PROG $usage"
+                allow+=("$2"); shift 2 ;;
+            -h|--help) echo "uso: $PROG $usage"; return 0 ;;
+            *) die "uso: $PROG $usage" ;;
         esac
     done
     [[ -z "$sock" ]] && sock="$(bridge_sock_path)"

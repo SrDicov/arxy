@@ -15,8 +15,12 @@ export ARXY_SIGNATURE_POLICY="off"
 
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
-# shellcheck source=../lib/20-lifecycle.sh
-. "$HERE/../lib/20-lifecycle.sh" >/dev/null 2>&1
+# shellcheck source=../lib/20-state.sh
+. "$HERE/../lib/20-state.sh" >/dev/null 2>&1
+# shellcheck source=../lib/21-setup.sh
+. "$HERE/../lib/21-setup.sh" >/dev/null 2>&1
+# shellcheck source=../lib/22-gc.sh
+. "$HERE/../lib/22-gc.sh" >/dev/null 2>&1
 
 # Root viejo valido y operativo.
 mkdir -p "$ARXY_ROOT/usr/bin" "$ARXY_ROOT/etc" "$ARXY_ROOT/var/lib/arxy"

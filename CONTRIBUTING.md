@@ -27,17 +27,18 @@ Vale lo que dice `AGENTS.md`. Resumen:
 - Funciones públicas `cmd_*`, resto con `_`. Variables `ARXY_*`.
 - Casi todo comando llama a `ensure_image` primero.
 - Comentarios que citan el bug o commit que los motivó: se quedan.
+- Configuración como datos; nunca `source`/`eval` sobre archivos del usuario.
+- Argumentos estructurados; evitar comandos armados como strings.
+- `stdout` para datos componibles y `stderr` para avisos/errores.
 
 ## Tests
 
-Cada test es `bash tests/test-*.sh`, autocontenido, sin runner. Antes del PR:
+Cada test es `bash tests/test-*.sh` y sigue siendo ejecutable por separado. Antes del PR:
 
 ```bash
 make sync
-make src/arxy && git diff --exit-code src/arxy
-bash -n lib/*.sh src/arxy install.sh && shellcheck -S warning src/arxy install.sh
-cmp src/arxy packaging/void/arxy/files/arxy && cmp config/arxy.conf packaging/void/arxy/files/arxy.conf && cmp config/arxy.pub packaging/void/arxy/files/arxy.pub
-bash tests/test-makefile.sh
+make verify
+make test-all  # cuando el entorno permite bridge/root/hardware
 ```
 
 Los tests que usan `src/arxy`, siempre después de `make sync` (si no,

@@ -10,10 +10,18 @@ ARXY_VERSION_FILE="/tmp/vtest/version" # default vive en el root; aislar por env
 export ARXY_ROOT ARXY_VERSION_FILE
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
-# shellcheck source=../lib/60-hw.sh
-. "$HERE/../lib/60-hw.sh" >/dev/null 2>&1
-# shellcheck source=../lib/20-lifecycle.sh
-. "$HERE/../lib/20-lifecycle.sh" >/dev/null 2>&1
+# shellcheck source=../lib/60-detect.sh
+. "$HERE/../lib/60-detect.sh" >/dev/null 2>&1
+# shellcheck source=../lib/61-doctor.sh
+. "$HERE/../lib/61-doctor.sh" >/dev/null 2>&1
+# shellcheck source=../lib/62-json.sh
+. "$HERE/../lib/62-json.sh" >/dev/null 2>&1
+# shellcheck source=../lib/20-state.sh
+. "$HERE/../lib/20-state.sh" >/dev/null 2>&1
+# shellcheck source=../lib/21-setup.sh
+. "$HERE/../lib/21-setup.sh" >/dev/null 2>&1
+# shellcheck source=../lib/22-gc.sh
+. "$HERE/../lib/22-gc.sh" >/dev/null 2>&1
 D="$ARXY_DATA"
 rm -rf "$D"; mkdir -p "$D"
 trap 'rm -rf "$D"' EXIT

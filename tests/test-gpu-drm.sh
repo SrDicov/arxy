@@ -3,6 +3,10 @@
 # Uso: ./tests/test-gpu-drm.sh  (arxy en PATH; no necesita imagen)
 set -uo pipefail
 FAIL=0
+HERE="$(dirname "$0")"
+# shellcheck source=lib.sh
+. "$HERE/lib.sh"
+BIN="$ARXY_BIN"
 D="$(mktemp -d)"
 trap 'rm -rf "$D"' EXIT
 
@@ -17,7 +21,7 @@ fake() { # fake <vendor|-> : prepara un card0 con ese vendor (o sin cards)
 t() { # t <nombre> <vendor|-> <esperado>
     fake "$2"
     local got
-    got="$(ARXY_SYS_DRM_PATH="$D" arxy version --verbose 2>/dev/null | sed -n 's/^gpu: //p')"
+    got="$(ARXY_SYS_DRM_PATH="$D" "$BIN" version --verbose 2>/dev/null | sed -n 's/^gpu: //p')"
     if [[ "$got" == "$3"* ]]; then echo "PASS: $1";
     else echo "FAIL: $1 (quiero '$3*', tengo '$got')"; FAIL=$((FAIL+1)); fi
 }
@@ -30,15 +34,18 @@ t "sin cards calla" "-" "no discreta"
 # Ojo pipefail: se captura la salida (|| true) y decide el grep, no el rc.
 
 # --- heuristica NVIDIA pura, con mocks (sin root ni GPU real) ---
-HERE="$(dirname "$0")"
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
 # shellcheck source=../lib/35-gpu.sh
 . "$HERE/../lib/35-gpu.sh" >/dev/null 2>&1
 # shellcheck source=../lib/10-level.sh
 . "$HERE/../lib/10-level.sh" >/dev/null 2>&1
-# shellcheck source=../lib/60-hw.sh
-. "$HERE/../lib/60-hw.sh" >/dev/null 2>&1
+# shellcheck source=../lib/60-detect.sh
+. "$HERE/../lib/60-detect.sh" >/dev/null 2>&1
+# shellcheck source=../lib/61-doctor.sh
+. "$HERE/../lib/61-doctor.sh" >/dev/null 2>&1
+# shellcheck source=../lib/62-json.sh
+. "$HERE/../lib/62-json.sh" >/dev/null 2>&1
 
 # doctor_gpu exige imagen mini (is_mesa_mini): con mesa completa retorna 0.
 # Override determinista (patrón test-arxy-gaming.sh) en subshell del $()

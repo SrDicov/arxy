@@ -13,11 +13,11 @@ t() { # t <nombre> -- <cmd...>
 }
 
 t "make src/arxy sale 0" -- make src/arxy
-t "generado == commiteado" -- git diff --exit-code -- src/arxy
 h1="$(sha256sum <src/arxy)"
-t "make -B idempotente" -- sh -c 'make -B src/arxy >/dev/null && test "$(sha256sum <src/arxy)" = "'"$h1"'"'
+t "generado idempotente" -- sh -c 'make -B src/arxy >/dev/null && test "$(sha256sum <src/arxy)" = "'"$h1"'"'
 t "bash -n generado" -- bash -n src/arxy
-t "shebang + cierre" -- sh -c 'test "$(head -1 src/arxy)" = "#!/usr/bin/env bash" && test "$(tail -1 src/arxy)" = "esac"'
+t "shebang + main" -- sh -c 'test "$(head -1 src/arxy)" = "#!/usr/bin/env bash" && grep -q "^main()" src/arxy && test "$(tail -1 src/arxy)" = "fi"'
+t "bundle sourceable sin dispatch" -- bash -c 'set -- no-debe-ejecutarse; ARXY_ROOT=/tmp/arxy-source-test; . ./src/arxy >/dev/null 2>&1; declare -F main >/dev/null'
 
 echo "== resultado: $([[ $FAIL -eq 0 ]] && echo TODO_OK || echo "$FAIL FALLOS")"
 exit $FAIL

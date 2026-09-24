@@ -19,6 +19,10 @@ printf '[options]\n' > "$ARXY_ROOT/etc/pacman.conf"
 . "$HERE/../lib/10-level.sh" >/dev/null 2>&1
 # shellcheck source=../lib/30-package.sh
 . "$HERE/../lib/30-package.sh" >/dev/null 2>&1
+# shellcheck source=../lib/31-aur.sh
+. "$HERE/../lib/31-aur.sh" >/dev/null 2>&1
+# shellcheck source=../lib/32-maintenance.sh
+. "$HERE/../lib/32-maintenance.sh" >/dev/null 2>&1
 
 # Real antes de stubear (T7/T9 restauran en su subshell).
 _REAL_AUR="$(declare -f cmd_install_aur)"

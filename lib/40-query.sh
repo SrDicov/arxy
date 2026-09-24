@@ -1,11 +1,12 @@
 # --- lectura (corre como usuario)
 cmd_info() {
-    [[ $# -ge 1 ]] || die "uso: $PROG info <paquete>"
+    [[ $# -eq 1 ]] || die "uso: $PROG info <paquete>"
     ensure_image
     run_pacman -Qi "$1" 2>/dev/null || run_pacman -Si "$1"
 }
 
 cmd_list() {
+    [[ $# -eq 0 ]] || die "uso: $PROG list"
     ensure_image
     local exported line pkg
     exported="$(grep -h '^X-Arxy-Pkg=' "$REAL_APPS"/arxy-*.desktop 2>/dev/null | cut -d= -f2- | sort -u || true)"
@@ -47,4 +48,3 @@ cmd_search_aur() {
     in_sys /usr/bin/jq -r '.results[] | "\(.Name) \(.Version) [votos:\(.NumVotes) popularidad:\(.Popularity|floor)]\n    \(.Description // "")"' 2>/dev/null || \
         die "fallo la busqueda AUR de '$q' en https://aur.archlinux.org/rpc/ (¿red? cero resultados no es error)"
 }
-

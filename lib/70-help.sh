@@ -15,7 +15,7 @@ Empezar:
 Dia a dia:
   install|i <pkg...>   instalar paquetes de Arch (+ crea lanzadores .desktop)
   install gpu-amd|gpu-nvidia  stack GL completo para esas GPUs (+~170MB)
-  install arxy-gaming [--dry-run]  stack gaming segun GPU (rewrite a arxy-gaming-<vendor>)
+  install arxy-gaming[-amd|-intel|-nvidia] [--dry-run]  stack gaming (auto u override)
   install --aur <pkg>  instalar de AUR (precompilados -bin, motor paru)
   remove|rm <pkg...>   desinstalar (+ borra sus lanzadores)
   update|up            actualizar todo el subsistema (pacman -Syu)
@@ -52,4 +52,3 @@ Nivel: auto (1=bwrap, 2=sin namespaces); forzar con ARXY_LEVEL=1|2.
 Imagen: $ARXY_ROOT  (se descarga sola en el primer uso).
 EOF
 }
-

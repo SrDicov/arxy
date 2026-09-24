@@ -26,15 +26,16 @@ resolve_target() { # <bin|ruta> -> deja la ruta vista desde dentro en RESOLVED_T
         case "$t" in
             /host/*) RESOLVED_TARGET="$t"; return 0 ;;
         esac
-        local vis=0 d
-        for d in $VISIBLE_DIRS /tmp /run /dev /proc /sys; do
-            [[ "$t" == "$d" || "$t" == "$d"/* ]] && { vis=1; break; }
-        done
-        if [[ "$t" == /usr/* || "$t" == /bin/* || "$t" == /sbin/* || "$t" == /etc/* ]] && [[ ! -e "$t" || $vis -eq 0 ]]; then
+        if [[ "$t" == /usr/* || "$t" == /bin/* || "$t" == /sbin/* || "$t" == /etc/* ]] \
+            && { [[ ! -e "$t" ]] || ! host_path_visible "$t"; }; then
             RESOLVED_TARGET="$t" # ruta del subsistema (ej. /usr/bin/...) aunque exista algo igual en el host
         elif [[ -e "$t" ]]; then
             RESOLVED_HOST="$t"
-            [[ $vis -eq 1 || "$_ARXY_LEVEL" == 2 ]] && RESOLVED_TARGET="$t" || RESOLVED_TARGET="/host$t"
+            if [[ "$_ARXY_LEVEL" == 2 ]] || host_path_visible "$t"; then
+                RESOLVED_TARGET="$t"
+            else
+                RESOLVED_TARGET="/host$t"
+            fi
         else
             RESOLVED_TARGET="$t" # no existe en host: asumir ruta del subsistema y dejar que falle alli
         fi
@@ -48,11 +49,11 @@ resolve_target() { # <bin|ruta> -> deja la ruta vista desde dentro en RESOLVED_T
         if [[ -n "$h" && -f "$h" ]]; then
             h="$(resolve_path "$h")"
             RESOLVED_HOST="$h"
-            local vis=0 d
-            for d in $VISIBLE_DIRS /tmp /run /dev /proc /sys; do
-                [[ "$h" == "$d" || "$h" == "$d"/* ]] && { vis=1; break; }
-            done
-            [[ $vis -eq 1 || "$_ARXY_LEVEL" == 2 ]] && RESOLVED_TARGET="$h" || RESOLVED_TARGET="/host$h"
+            if [[ "$_ARXY_LEVEL" == 2 ]] || host_path_visible "$h"; then
+                RESOLVED_TARGET="$h"
+            else
+                RESOLVED_TARGET="/host$h"
+            fi
         else
             die "'$t' no encontrado. Prueba: $PROG install $t  o  $PROG search $t"
         fi
@@ -142,7 +143,7 @@ cmd_shell() {
 }
 
 cmd_which() { # <bin|ruta> : donde se resolveria (subsistema vs host)
-    [[ $# -ge 1 ]] || die "uso: $PROG which <programa|ruta>"
+    [[ $# -eq 1 ]] || die "uso: $PROG which <programa|ruta>"
     ensure_image
     level
     resolve_target "$1"
@@ -153,4 +154,3 @@ cmd_which() { # <bin|ruta> : donde se resolveria (subsistema vs host)
         echo "$RESOLVED_TARGET  [subsistema]"
     fi
 }
-

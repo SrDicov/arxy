@@ -11,10 +11,18 @@ ARXY_ROOT="/tmp/vclean/root"
 export ARXY_ROOT
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
-# shellcheck source=../lib/60-hw.sh
-. "$HERE/../lib/60-hw.sh" >/dev/null 2>&1
-# shellcheck source=../lib/20-lifecycle.sh
-. "$HERE/../lib/20-lifecycle.sh" >/dev/null 2>&1
+# shellcheck source=../lib/60-detect.sh
+. "$HERE/../lib/60-detect.sh" >/dev/null 2>&1
+# shellcheck source=../lib/61-doctor.sh
+. "$HERE/../lib/61-doctor.sh" >/dev/null 2>&1
+# shellcheck source=../lib/62-json.sh
+. "$HERE/../lib/62-json.sh" >/dev/null 2>&1
+# shellcheck source=../lib/20-state.sh
+. "$HERE/../lib/20-state.sh" >/dev/null 2>&1
+# shellcheck source=../lib/21-setup.sh
+. "$HERE/../lib/21-setup.sh" >/dev/null 2>&1
+# shellcheck source=../lib/22-gc.sh
+. "$HERE/../lib/22-gc.sh" >/dev/null 2>&1
 D="$ARXY_DATA"
 R="$ARXY_ROOT"
 rm -rf "$D"; mkdir -p "$D"
@@ -31,32 +39,33 @@ mkroot() { # <$dir> [$mark] : rootfs valido para _image_ok
     [[ -n "${2:-}" ]] && echo "$2" > "$1/.mark"
 }
 clean() { rm -rf "$R" "$R.old" "$R".new.* "$R".old.tmp.* "$R".swap.* "$D"/.image.partial.*; }
+declare -A FIX=()
 
 echo "== T0: limpio -> skip (applicable false)"
 clean
-out="$(fix_probe staging-cleanup)"
-[[ "$out" == "skip|sin staging huerfano||" ]] && ok "T0 probe skip" || no "T0 probe skip"
+fix_probe staging-cleanup FIX
+[[ "${FIX[status]}" == skip && "${FIX[reason]}" == "sin staging huerfano" ]] && ok "T0 probe skip" || no "T0 probe skip"
 fixes_json 2>/dev/null | grep -q '"id": "staging-cleanup", "applicable": false' && ok "T0 json applicable false" || no "T0 json applicable false"
 fixes_json 2>/dev/null | grep -q '"id": "staging-cleanup"[^}]*"phase": null' && ok "T0 json phase null" || no "T0 json phase null"
 
 echo "== T1: root.new con root valido -> borrar"
 clean; mkroot "$R" bueno; mkdir -p "$R.new.111"
-out="$(fix_probe staging-cleanup)"
-grep -q "^todo|" <<<"$out" && grep -q "borrar root.new.111" <<<"$out" && ok "T1 probe todo+would_do" || no "T1 probe todo+would_do"
+fix_probe staging-cleanup FIX
+[[ "${FIX[status]}" == todo && "${FIX[action]}" == *"borrar root.new.111"* ]] && ok "T1 probe todo+would_do" || no "T1 probe todo+would_do"
 recover_staging >/dev/null 2>&1
 [[ ! -e "$R.new.111" ]] && [[ "$(cat "$R/.mark")" == bueno ]] && ok "T1 apply borra, root intacto" || no "T1 apply borra, root intacto"
 
 echo "== T2: root.new valido sin root -> recuperar"
 clean; mkroot "$R.new.222" nuevo
-out="$(fix_probe staging-cleanup)"
-grep -q "recuperar root.new.222 a root" <<<"$out" && ok "T2 probe recover" || no "T2 probe recover"
+fix_probe staging-cleanup FIX
+[[ "${FIX[action]}" == *"recuperar root.new.222 a root"* ]] && ok "T2 probe recover" || no "T2 probe recover"
 recover_staging >/dev/null 2>&1
 [[ "$(cat "$R/.mark" 2>/dev/null)" == nuevo ]] && [[ ! -e "$R.new.222" ]] && ok "T2 apply recupera" || no "T2 apply recupera"
 
 echo "== T3: old.tmp con root valido -> rotar a .old"
 clean; mkroot "$R" bueno; mkroot "$R.old.tmp.333" previo
-out="$(fix_probe staging-cleanup)"
-grep -q "rotar root.old.tmp.333 a root.old" <<<"$out" && ok "T3 probe rotate" || no "T3 probe rotate"
+fix_probe staging-cleanup FIX
+[[ "${FIX[action]}" == *"rotar root.old.tmp.333 a root.old"* ]] && ok "T3 probe rotate" || no "T3 probe rotate"
 recover_staging >/dev/null 2>&1
 [[ "$(cat "$R.old/.mark" 2>/dev/null)" == previo ]] && [[ ! -e "$R.old.tmp.333" ]] && ok "T3 apply rota" || no "T3 apply rota"
 
@@ -76,15 +85,15 @@ ls -d "$R".old.tmp.* >/dev/null 2>&1 && no "T5 sin restos" || ok "T5 sin restos"
 
 echo "== T6: partial -> borrar"
 clean; mkroot "$R" bueno; touch "$D/.image.partial.777"
-out="$(fix_probe staging-cleanup)"
-grep -q "borrar .image.partial.777" <<<"$out" && ok "T6 probe remove" || no "T6 probe remove"
+fix_probe staging-cleanup FIX
+[[ "${FIX[action]}" == *"borrar .image.partial.777"* ]] && ok "T6 probe remove" || no "T6 probe remove"
 recover_staging >/dev/null 2>&1
 [[ ! -e "$D/.image.partial.777" ]] && ok "T6 apply borra" || no "T6 apply borra"
 
 echo "== T7: swap varado"
 clean; mkroot "$R" bueno; mkroot "$R.swap.888" swapado
-out="$(fix_probe staging-cleanup)"
-grep -q "borrar root.swap.888" <<<"$out" && ok "T7 probe remove con root valido" || no "T7 probe remove con root valido"
+fix_probe staging-cleanup FIX
+[[ "${FIX[action]}" == *"borrar root.swap.888"* ]] && ok "T7 probe remove con root valido" || no "T7 probe remove con root valido"
 recover_staging >/dev/null 2>&1
 [[ ! -e "$R.swap.888" ]] && ok "T7 apply borra" || no "T7 apply borra"
 clean; mkroot "$R.swap.999" swapado
@@ -137,7 +146,7 @@ echo "== T12: ciclo de vida no toca paths del bridge ()"
 # Contrato: setup/rollback/gc viven bajo ARXY_ROOT/ARXY_DATA; el daemon
 # (socket/pid/token) vive fuera. Si alguien referencia el bridge desde
 # el ciclo de vida, este pin cae (en codigo, no en comentario).
-if grep -n "arxy-bridge\|BRIDGE_SOCKET\|bridge_sock_path\|bridge_pid_path\|bridge_token_path\|bridge_session" "$HERE"/../lib/20-lifecycle.sh | grep -qv '^[0-9]*:#'; then
+if grep -n "arxy-bridge\|BRIDGE_SOCKET\|bridge_sock_path\|bridge_pid_path\|bridge_token_path\|bridge_session" "$HERE"/../lib/20-state.sh "$HERE"/../lib/21-setup.sh "$HERE"/../lib/22-gc.sh | grep -qv '^[^:]*:[0-9]*:#'; then
     no "T12 lifecycle sin refs bridge"
 else
     ok "T12 lifecycle sin refs bridge"
@@ -145,9 +154,12 @@ fi
 # Conductual: socket falso dentro de DATA sobrevive a recover_staging.
 if command -v python3 >/dev/null 2>&1; then
     clean; mkroot "$R" bueno; mkdir -p "$R.new.111"; touch "$D/.image.partial.777"
-    python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$D/br.sock')" 2>/dev/null
-    recover_staging >/dev/null 2>&1
-    [[ -S "$D/br.sock" ]] && ok "T12 socket sobrevive a recover" || no "T12 socket borrado por recover"
+    if python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$D/br.sock')" 2>/dev/null; then
+        recover_staging >/dev/null 2>&1
+        [[ -S "$D/br.sock" ]] && ok "T12 socket sobrevive a recover" || no "T12 socket borrado por recover"
+    else
+        echo "SKIP: T12 conductual (AF_UNIX no permitido en este entorno)"
+    fi
     rm -f "$D/br.sock"
 else
     echo "SKIP: T12 conductual (sin python3)"

@@ -16,7 +16,7 @@ desk_field() { grep -m1 -E "^$2=" "$1" | cut -d= -f2-; }
 
 # cmd_export <pkg | archivo.desktop | --all>
 cmd_export() {
-    [[ $# -ge 1 ]] || die "uso: $PROG export <paquete | archivo.desktop | --all>"
+    [[ $# -eq 1 ]] || die "uso: $PROG export <paquete | archivo.desktop | --all>"
     # Sin flags a run_pacman (-Qlq pasaria la opcion a pacman).
     [[ "$1" == -* && "$1" != --all ]] && die "opcion no soportada en export: '$1'"
     # el nombre de paquete se valida ANTES de ensure_image (un "a b"
@@ -61,7 +61,7 @@ cmd_export() {
 }
 
 export_one() { # <ruta.desktop del host> <pkg|nombre>
-    local src="$1" pkg="$2" base name exec bin codes icon term cats comment out
+    local src="$1" pkg="$2" base name exec bin codes icon term cats comment out tmp
     base="${src##*/}"
     [[ -f "$src" ]] || return 0
     name="$(desk_field "$src" Name)"
@@ -95,6 +95,8 @@ export_one() { # <ruta.desktop del host> <pkg|nombre>
     comment="$(desk_field "$src" Comment)"
     mkdir -p "$REAL_APPS"
     out="$REAL_APPS/arxy-$base"
+    tmp="$(mktemp "$REAL_APPS/.arxy-desktop.XXXXXX" 2>/dev/null)" \
+        || { msg "aviso: no pude crear lanzador temporal en $REAL_APPS" >&2; return 1; }
     {
         echo "[Desktop Entry]"
         echo "Name=$name"
@@ -106,10 +108,12 @@ export_one() { # <ruta.desktop del host> <pkg|nombre>
         echo "Type=Application"
         [[ -n "$cats" ]] && echo "Categories=$cats"
         echo "X-Arxy-Pkg=$pkg"
-    } > "$out"
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    chmod 0644 "$tmp" 2>/dev/null || true
     if [[ "$(id -u)" -eq 0 && "$REAL_USER" != "root" ]]; then
-        chown "$REAL_USER" "$out" 2>/dev/null || true
+        chown "$REAL_USER" "$tmp" 2>/dev/null || true
     fi
+    mv -f "$tmp" "$out" || { rm -f "$tmp"; return 1; }
     msg "lanzador: ${out##*/}  ($name)"
 }
 
@@ -163,6 +167,7 @@ desktop_migrate_auto() { # tras install/update: aviso a stderr, nunca falla
 }
 
 cmd_desktop() { # desktop --migrate
+    [[ $# -eq 1 ]] || die "uso: $PROG desktop --migrate (ver: $PROG help)"
     case "${1:-}" in
         --migrate) cmd_desktop_migrate ;;
         *) die "uso: $PROG desktop --migrate (ver: $PROG help)" ;;
@@ -170,7 +175,7 @@ cmd_desktop() { # desktop --migrate
 }
 
 cmd_unexport() {
-    [[ $# -ge 1 ]] || die "uso: $PROG unexport <nombre>"
+    [[ $# -eq 1 ]] || die "uso: $PROG unexport <nombre>"
     local f base="$1"
     base="${base##*/}"
     base="${base%.desktop}"
@@ -181,12 +186,12 @@ cmd_unexport() {
 }
 
 update_desktop_db() {
-    command -v update-desktop-database >/dev/null 2>&1 || return 0
+    local updater
+    updater="$(command -v update-desktop-database)" || return 0
     [[ -d "$REAL_APPS" ]] || return 0
     if [[ "$(id -u)" -eq 0 && "$REAL_USER" != "root" ]]; then
-        su -s /bin/sh "$REAL_USER" -c "update-desktop-database \"$REAL_APPS\"" >/dev/null 2>&1 || true
+        su -s /bin/sh -c 'exec "$1" "$2"' "$REAL_USER" sh "$updater" "$REAL_APPS" >/dev/null 2>&1 || true
     else
-        update-desktop-database "$REAL_APPS" >/dev/null 2>&1 || true
+        "$updater" "$REAL_APPS" >/dev/null 2>&1 || true
     fi
 }
-

@@ -3,14 +3,8 @@
 #
 # arxy — subsistema Arch minimalista para correr software glibc en cualquier distro.
 #
-# Sin sandbox y sin contenedorizar por app: un mount namespace minimo (bwrap)
-# para ver la raiz Arch como / siendo usuario normal. Rendimiento nativo.
-# Comparte /home, /tmp, /run, /dev y la GPU con el host. No toca nada del host
-# fuera de /var/lib/arxy y ~/.local/share/applications/arxy-*.desktop.
-#
-# Instalacion (Void): sudo xbps-install arxy -y
-# La imagen minima se descarga sola en el primer uso (setup automatico).
-# Para administrar dentro (pacman): sudo arxy shell
+# Un namespace bwrap muestra la raíz Arch como / y comparte recursos del host.
+# Estado persistente: /var/lib/arxy y lanzadores arxy-*.desktop del usuario.
 
 set -uo pipefail
 
@@ -22,16 +16,81 @@ PROG="arxy"
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 
 # --- configuracion (precedencia: env > user-conf > sys-conf > defaults)
-# Congelar lo que vino por entorno: ningun fichero puede pisarlo (se
-# restauran VALORES tras leerlos, junto al user-conf del usuario real,
-# mas abajo; guardar solo nombres no sirve: el source ya los piso).
+# Los .conf son datos: CLAVE=valor, con comillas opcionales y sin expansión.
+# La lista cerrada también protege la lectura del config de usuario como root.
+declare -ar CONFIG_KEYS=(
+    ARXY_ROOT ARXY_IMAGE_URL ARXY_IMAGE_SHA256 ARXY_SIGNATURE_POLICY
+    ARXY_LEVEL ARXY_GPG_CHECK ARXY_KEEP_PKG_CACHE ARXY_NO_AUTO_DEDUP
+    ARXY_NO_BRIDGE ARXY_BRIDGE_ALLOWLIST ARXY_BRIDGE_BIN
+)
+declare -ar PRIV_ENV_KEYS=(
+    "${CONFIG_KEYS[@]}"
+    ARXY_BRIDGE_SOCKET ARXY_BRIDGE_TOKEN ARXY_VERSION_FILE
+    ARXY_VERSION_LEGACY ARXY_SYS_ROOT ARXY_SYS_DRM_PATH ARXY_DEV_PATH
+    ARXY_LIB_DIR ARXY_LIB64_DIR ARXY_NVIDIA_LIB_ROOT
+    ARXY_NVIDIA_LIB_ROOT64 ARXY_NVIDIA_LIB_ROOT32 ARXY_VULKAN_ICD_PATH
+    ARXY_EGL_PLATFORM_PATH ARXY_GAMING_AUR_DONE
+)
 declare -A _frozen_val=()
 while IFS= read -r _n; do _frozen_val["$_n"]="${!_n}"; done < <(compgen -e | grep '^ARXY_' || true)
+
+_config_key_allowed() {
+    local key
+    for key in "${CONFIG_KEYS[@]}"; do
+        [[ "$1" == "$key" ]] && return 0
+    done
+    return 1
+}
+
+_config_trim() { # <texto>: resultado en _CONFIG_TEXT
+    _CONFIG_TEXT="$1"
+    _CONFIG_TEXT="${_CONFIG_TEXT#"${_CONFIG_TEXT%%[![:space:]]*}"}"
+    _CONFIG_TEXT="${_CONFIG_TEXT%"${_CONFIG_TEXT##*[![:space:]]}"}"
+}
+
+_config_decode() { # <valor>: resultado literal en _CONFIG_VALUE
+    _config_trim "$1"
+    local raw="$_CONFIG_TEXT" n=${#_CONFIG_TEXT}
+    _CONFIG_VALUE=""
+    if [[ "$raw" == \"* ]]; then
+        [[ "$n" -ge 2 && "$raw" == *\" ]] || return 1
+        _CONFIG_VALUE="${raw:1:n-2}"
+    elif [[ "$raw" == \'* ]]; then
+        [[ "$n" -ge 2 && "$raw" == *\' ]] || return 1
+        _CONFIG_VALUE="${raw:1:n-2}"
+    else
+        _CONFIG_VALUE="$raw"
+    fi
+}
+
+_config_read() { # <fichero>: asignaciones permitidas, sin eval/source
+    local file="$1" line key raw line_no=0
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_no=$((line_no + 1))
+        _config_trim "$line"
+        line="$_CONFIG_TEXT"
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ ! "$line" =~ ^([A-Z_][A-Z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+            printf 'arxy: aviso: %s:%d: linea de configuracion ignorada\n' "$file" "$line_no" >&2
+            continue
+        fi
+        key="${BASH_REMATCH[1]}"
+        raw="${BASH_REMATCH[2]}"
+        if ! _config_key_allowed "$key"; then
+            printf 'arxy: aviso: %s:%d: clave no soportada: %s\n' "$file" "$line_no" "$key" >&2
+            continue
+        fi
+        if ! _config_decode "$raw"; then
+            printf 'arxy: aviso: %s:%d: comillas no balanceadas en %s\n' "$file" "$line_no" "$key" >&2
+            continue
+        fi
+        printf -v "$key" '%s' "$_CONFIG_VALUE"
+    done < "$file"
+}
+
 _restore_frozen() { # el env congelado manda sobre cualquier fichero.
-    # OJO: llamarlo ANTES de derivar (ARXY_DATA y cia cuelgan de ARXY_*);
-    # restaurar despues deja ROOT y DATA de mundos distintos (split-brain:
-    # setup extraia en el root aislado pero escribia version/level2-rc en
-    # el vivo, probado con ARXY_ROOT=/tmp/xyz).
+    # Debe ocurrir antes de derivar rutas para evitar estados split-brain.
     local _n
     if ((${#_frozen_val[@]})); then
         for _n in "${!_frozen_val[@]}"; do
@@ -48,10 +107,8 @@ ARXY_SIGNATURE_POLICY="${ARXY_SIGNATURE_POLICY:-optional}" # required|optional|o
 
 ARXY_SYS_CONF="/etc/arxy/arxy.conf"
 ARXY_USER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/arxy/config"
-# shellcheck source=/dev/null
-[[ -r "$ARXY_SYS_CONF" ]] && . "$ARXY_SYS_CONF"
-# shellcheck source=/dev/null
-[[ -r "$ARXY_USER_CONF" ]] && . "$ARXY_USER_CONF"
+_config_read "$ARXY_SYS_CONF"
+_config_read "$ARXY_USER_CONF"
 _restore_frozen
 
 ARXY_ARGV=("$@")
@@ -64,39 +121,30 @@ else
 fi
 REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
 [[ -z "${REAL_HOME:-}" || ! -d "$REAL_HOME" ]] && REAL_HOME="$HOME"
-# XDG manda si esta fijado (tests/CI lo aislan en un tmpdir); si no, lo de
-# siempre. Sin esto, SUDO_USER filtrado parte los lanzadores del dir que la
-# matrix mira (dos tandas de FAILs en falso por el mismo gotcha).
+# XDG explícito manda; en otro caso se usa el home del usuario real.
 REAL_APPS="${XDG_DATA_HOME:-$REAL_HOME/.local/share}/applications"
 
-# Root via sudo/doas (ej. 'sudo arxy setup'): arriba se leyo el user-conf
-# de /root; el del usuario real tambien cuenta. El env congelado manda.
+# Bajo sudo/doas también se lee como datos la configuración del usuario real.
 if [[ "$(id -u)" -eq 0 && "$REAL_HOME" != "$HOME" ]]; then
-    # shellcheck source=/dev/null
-    [[ -r "$REAL_HOME/.config/arxy/config" ]] && . "$REAL_HOME/.config/arxy/config"
+    _config_read "$REAL_HOME/.config/arxy/config"
     _restore_frozen
 fi
-unset _frozen_val
+unset _frozen_val _CONFIG_TEXT _CONFIG_VALUE
 
-# vacio no es "unset" (:- los confunde y DATA/BUILD/VFILE caerian
-# a rutas reales creyendo aislar). Tras ambos restores, vacio muere claro
-# (die aun no existe aqui: echo+exit con el mismo prefijo).
+# Vacío no equivale a unset: rechazarlo evita derivar rutas inesperadas.
 if [[ -z "${ARXY_ROOT:-}" ]]; then
     echo "arxy: error: ARXY_ROOT vacio (unset para usar el default)" >&2
     exit 1
 fi
-# Derivados de ARXY_ROOT en UN solo punto, DESPUES de ambas restauraciones.
-# Antes se derivaba entre el primer _restore_frozen y el source del usuario
-# real: con sudo sin env y ARXY_ROOT en el conf del usuario real, ROOT
-# apuntaba al conf pero DATA/VFILE/BUILD seguian del sys-conf (split-brain:
-# setup extraia en un root y escribia version/level2-rc en otro).
+if [[ "$ARXY_ROOT" != /* || "$ARXY_ROOT" == / ]]; then
+    echo "arxy: error: ARXY_ROOT debe ser una ruta absoluta distinta de /" >&2
+    exit 1
+fi
+# Todas las rutas derivadas nacen aquí, después de resolver configuración.
 ARXY_DATA="${ARXY_ROOT%/*}"              # /var/lib/arxy
-# version DENTRO del root: nace en el staging y el rename la
-# publica junto a la imagen — nunca hay root nuevo con version vieja ni al
-# reves, y el rollback la rota sola. El env manda (tests la aislan).
+# La versión vive dentro del root y rota atómicamente con la imagen.
 : "${ARXY_VERSION_FILE:=$ARXY_ROOT/var/lib/arxy/version}"
-# Ruta del formato anterior (fuera del root): solo se lee para adoptar una vez y
-# borrar; el codigo nuevo jamas la escribe (una sola verdad).
+# Ruta antigua: solo se adopta y elimina; el código nuevo no la escribe.
 : "${ARXY_VERSION_LEGACY:=$ARXY_DATA/version}"
 ARXY_BUILD="$ARXY_DATA/build"              # dir de compilacion AUR (1777)
 NS_BUILD="/arxy-build"                     # misma dir vista desde dentro
@@ -105,8 +153,8 @@ LD_LINUX="$ARXY_ROOT/usr/lib/ld-linux-x86-64.so.2" # interprete ELF del subsiste
 ARXY_LIBPATH="$ARXY_ROOT/usr/lib"
 
 # --- utilidades
-msg()  { echo "arxy: $*"; }
-die()  { echo "arxy: error: $*" >&2; exit 1; }
+msg()  { printf 'arxy: %s\n' "$*"; }
+die()  { printf 'arxy: error: %s\n' "$*" >&2; exit 1; }
 
 need_cmd() {
     local c
@@ -115,45 +163,43 @@ need_cmd() {
     done
 }
 
-# Env ARXY_* ya resuelto -> comandos elevados (sudo VAR= / doas env VAR=).
-# Fuente unica para need_root y as_root: un sudo pelado pierde ARXY_ROOT
-# y opera sobre el rootfs por defecto (instalaciones cruzadas).
+# Solo PRIV_ENV_KEYS cruza la frontera sudo/doas; el prefijo ARXY_ no basta.
 arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
     # sudo/doas fijan el env en el hijo: sin export basta la asignacion.
-    local v
-    while IFS= read -r v; do
-        [[ "$v" == ARXY_ARGV ]] && continue # array, no escalar
-        [[ "$v" == ARXY_LOCK_FD ]] && continue # fd local: el hijo debe tomar su propio lock
-        printf '%s=%s\n' "$v" "${!v}"
-    done < <(compgen -v | grep '^ARXY_' || true)
+    local v value
+    for v in "${PRIV_ENV_KEYS[@]}"; do
+        [[ -v "$v" ]] || continue
+        value="${!v}"
+        [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] \
+            || die "$v contiene saltos de linea y no se puede elevar con seguridad"
+        printf '%s=%s\n' "$v" "$value"
+    done
 }
 
-# sudo/doas segun lo que traiga el host (Void minimo no trae ninguno por defecto).
-as_root() {
+# Construye una sola frontera de privilegios para sudo y doas. El modo exec
+# reemplaza el proceso; run devuelve el estado del comando al llamador.
+_root_run() { # <run|exec> <cmd...>
+    local mode="$1"; shift
     local -a pass=()
     mapfile -t pass < <(arxy_env_pass)
+    local -a elevate
     if command -v sudo >/dev/null 2>&1; then
-        sudo "${pass[@]}" -- "$@"
+        elevate=(sudo "${pass[@]}" --)
+    elif command -v doas >/dev/null 2>&1; then
+        elevate=(doas env "${pass[@]}")
     else
-        doas env "${pass[@]}" "$@"
+        die "este comando necesita root y no hay sudo/doas"
     fi
+    [[ "$mode" == exec ]] && exec "${elevate[@]}" "$@"
+    "${elevate[@]}" "$@"
 }
+
+as_root() { _root_run run "$@"; }
 
 # Re-ejecuta todo el argv original como root (los comandos que escriben lo exigen).
-# El proceso root no puede releer el user-conf del usuario (tras sudo su
-# $HOME es /root): se propaga toda la config ARXY_* ya resuelta arriba
-# (precedencia env > user-conf > sys-conf).
 need_root() {
     [[ "$(id -u)" -eq 0 ]] && return 0
-    local -a pass=()
-    mapfile -t pass < <(arxy_env_pass)
-    if command -v sudo >/dev/null 2>&1; then
-        exec sudo "${pass[@]}" -- "$SELF" "${ARXY_ARGV[@]}"
-    elif command -v doas >/dev/null 2>&1; then
-        exec doas env "${pass[@]}" "$SELF" "${ARXY_ARGV[@]}"
-    else
-        die "este comando necesita root y no hay sudo/doas. Ejecuta: sudo $PROG ${ARXY_ARGV[*]}"
-    fi
+    _root_run exec "$SELF" "${ARXY_ARGV[@]}"
 }
 
 _image_ok() { # <dir>: valida un rootfs (instalado o en staging)
@@ -161,27 +207,14 @@ _image_ok() { # <dir>: valida un rootfs (instalado o en staging)
 }
 image_ok() { _image_ok "$ARXY_ROOT"; }
 
-# Lock advisory unico para ops con estado (setup/rollback/gc-apply/
-# clean-apply/install/remove/update/doctor-apply corrian sin serializar;
-# dos setups peleaban por el unico slot .old con perdida silenciosa).
-# flock(1) no-bloqueante sobre ${ARXY_ROOT%/*}/.lock (== $ARXY_DATA/.lock en
-# produccion; no usar $ARXY_DATA directo: ver cuerpo): tomado, muere claro.
-# Reentrante en el mismo proceso (doctor --apply -> cmd_install comparten
-# el fd); el lock vive hasta el exit (cierre implicito). Tomar DESPUES de
-# need_root (el re-exec pierde fds... salvo heredados, y el padre-usuario
-# no debe bloquear). Fuera: fase AUR como usuario (dirs unicos por PID;
-# su fase privilegiada entra por cmd_install_file, que si lo toma).
+# Lock único, no bloqueante y reentrante para toda mutación del estado.
+# Se toma después de need_root y vive hasta que termina el proceso.
 data_lock() {
     [[ -n "${ARXY_LOCK_FD:-}" ]] && return 0 # ya tomado (anidado)
-    # OJO: derivar de ARXY_ROOT, NO de ARXY_DATA (los tests exportan ROOT
-    # tras sourcear y DATA queda rancio al default real: el lock caeria en
-    # /var/lib/arxy. En produccion son identicos: DATA="${ROOT%/*}").
+    # Derivar del ROOT actual evita usar un ARXY_DATA antiguo en tests.
     local lf="${ARXY_ROOT%/*}/.lock"
     mkdir -p "${ARXY_ROOT%/*}" 2>/dev/null || die "no pude crear ${ARXY_ROOT%/*} (¿permisos?)"
-    # OJO: este exec va PELADO (sin 2>/dev/null ni ||): cualquier redireccion
-    # extra persistiria en la shell (el stderr moria para siempre y los die
-    # salian mudos, cazado en tests). Si no se abre, bash muere con su error
-    # (caso ya roto: sin escritura en DATA no hay operacion posible).
+    # No redirigir este exec: la redirección persistiría en toda la shell.
     exec {ARXY_LOCK_FD}>"$lf"
     [[ -n "${ARXY_LOCK_FD:-}" ]] || die "no pude abrir lock $lf (¿permisos?)"
     flock -n "$ARXY_LOCK_FD" 2>/dev/null || die "otra operacion arxy en curso (lock $lf); reintenta cuando termine"
@@ -202,4 +235,3 @@ ensure_image() {
     cmd_setup
     image_ok || die "la instalacion de la imagen fallo (mira el error de arriba o reintenta 'sudo $PROG setup')"
 }
-

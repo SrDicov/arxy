@@ -4,9 +4,9 @@ Arch conviviente en `/var/lib/arxy/root` (ficheros normales, sin squashfs/FUSE).
 Comparte `/home /tmp /run /dev` + GPU. **Sin sandbox de seguridad** (capa
 compat-glibc, no aislamiento). Solo escribe en `/var/lib/arxy` (rootfs,
 `root.old` de rollback, estado) y `~/.local/share/applications/arxy-*.desktop`.
-Lee `/etc/arxy/arxy.conf` y `~/.config/arxy/config`. Precedencia:
-**env > user-conf > sys-conf** (env congelado en `_restore_frozen`,
-`lib/00-head.sh:29`). Contratos arquitectónicos (globales, lazy-init,
+Lee `/etc/arxy/arxy.conf` y `~/.config/arxy/config` como datos (nunca los
+ejecuta). Precedencia: **env > user-conf > sys-conf** (env congelado en
+`_restore_frozen`, `lib/00-head.sh`). Contratos arquitectónicos (globales, lazy-init,
 router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 (vivo: cada `TODO:` o desviación se registra ahí; si no está, no existe).
 
@@ -40,7 +40,9 @@ cmp src/arxy packaging/void/arxy/files/arxy && cmp config/arxy.conf packaging/vo
 
 ## Tests
 
-- Cada test es `bash tests/test-*.sh` autocontenido; sin runner. Helpers en
+- Cada test es `bash tests/test-*.sh` autocontenido. `tests/run.sh` los
+  orquesta en secuencia: `make test` para la suite determinista y
+  `make test-all` para los que necesitan entorno externo. Helpers en
   `tests/lib.sh`. `ARXY_BIN` default: `src/arxy` del repo (nunca el instalado:
   da falsos rojos). Tests que usan `$BIN`/`src/arxy`, siempre DESPUÉS de sync.
 - Assertions de **contenido** (`grep`), nunca solo rc (hubo bugs mudos con rc=0).
@@ -81,11 +83,11 @@ cmp src/arxy packaging/void/arxy/files/arxy && cmp config/arxy.conf packaging/vo
 - L2 cambia formatos de salida (`-Qlq --root` devuelve rutas prefijadas):
   todo path-parsing debe funcionar en ambas formas.
 - Invariantes: SIGKILL en cualquier punto deja el sistema recuperable en la
-  siguiente invocación (`recover_staging`, `lib/20-lifecycle.sh`). `version`
+  siguiente invocación (`recover_staging`, `lib/20-state.sh`). `version`
   vive DENTRO del root: el rename publica imagen+versión juntas, el rollback
   la rota sola. Casi todo comando llama a `ensure_image` (lazy-init) primero.
 - `doctor --json` tiene `"format": 1` estable: solo añadir campos, nunca
-  renombrar/quitar (schema mínimo en comentario de `lib/60-hw.sh`).
+  renombrar/quitar (schema mínimo en comentario de `lib/62-json.sh`).
   `reason`/`would_do` en español. `hardware.json` es caché, no fuente.
   `--fix` informa; `--apply` exige root; destructivos exigen `--confirm` + tty.
 - Firmas minisign: trust root `config/arxy.pub`; `setup` verifica según

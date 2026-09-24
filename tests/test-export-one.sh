@@ -16,8 +16,8 @@ mkdir -p "$ARXY_ROOT/usr/share/applications" "$ARXY_ROOT/usr/bin" "$XDG_DATA_HOM
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
 # shellcheck source=../lib/41-desktop.sh
 . "$HERE/../lib/41-desktop.sh" >/dev/null 2>&1
-# shellcheck source=../lib/30-package.sh
-. "$HERE/../lib/30-package.sh" >/dev/null 2>&1 # check_pkg_name para T7
+# shellcheck source=../lib/31-aur.sh
+. "$HERE/../lib/31-aur.sh" >/dev/null 2>&1 # check_pkg_name para T7
 
 ensure_image() { return 0; }
 update_desktop_db() { return 0; }

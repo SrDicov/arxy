@@ -12,8 +12,12 @@ done
 # (salvo pin =ver, que solo vive en bash). Fuente: lib en este repo.
 # shellcheck source=../lib/00-head.sh
 . "$(dirname "$0")/../lib/00-head.sh" >/dev/null 2>&1
-# shellcheck source=../lib/60-hw.sh
-. "$(dirname "$0")/../lib/60-hw.sh" >/dev/null 2>&1
+# shellcheck source=../lib/60-detect.sh
+. "$(dirname "$0")/../lib/60-detect.sh" >/dev/null 2>&1
+# shellcheck source=../lib/61-doctor.sh
+. "$(dirname "$0")/../lib/61-doctor.sh" >/dev/null 2>&1
+# shellcheck source=../lib/62-json.sh
+. "$(dirname "$0")/../lib/62-json.sh" >/dev/null 2>&1
 # shellcheck source=../lib/30-package.sh
 . "$(dirname "$0")/../lib/30-package.sh" >/dev/null 2>&1
 for v in nvidia amd intel; do

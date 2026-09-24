@@ -10,8 +10,12 @@ set -uo pipefail
 HERE="$(dirname "$0")"
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
-# shellcheck source=../lib/60-hw.sh
-. "$HERE/../lib/60-hw.sh" >/dev/null 2>&1
+# shellcheck source=../lib/60-detect.sh
+. "$HERE/../lib/60-detect.sh" >/dev/null 2>&1
+# shellcheck source=../lib/61-doctor.sh
+. "$HERE/../lib/61-doctor.sh" >/dev/null 2>&1
+# shellcheck source=../lib/62-json.sh
+. "$HERE/../lib/62-json.sh" >/dev/null 2>&1
 if [[ "$(detect_libc 2>/dev/null)" != musl ]]; then
     echo "SKIP: host $(detect_libc 2>/dev/null) (musl-glibc-stack solo aplica en musl)"
     exit 0

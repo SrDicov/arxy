@@ -52,7 +52,7 @@ Si usas la variante Void musl, el repositorio es `.../z-repo/x86_64-musl`. Si pr
 | `arxy quickstart` | Analiza el estado de tu instalación y te sugiere qué hacer a continuación. |
 | `arxy dedup` | Crea *hardlinks* para archivos idénticos en `/usr`. Se lanza automáticamente tras un `install` o `update` si el ahorro supera los 10 MB (puedes desactivarlo con `ARXY_NO_AUTO_DEDUP=1`). |
 | `axy` | Un alias rápido para no escribir `arxy` todo el rato. |
-| `arxy install arxy-gaming [--dry-run]` | Despliega el stack de *gaming* ajustado a tu GPU (hace un *rewrite* a `arxy-gaming-<vendor>`). La parte de AUR se compila en espacio de usuario. ¿Buscas Steam? Ve a la sección de Steam más abajo. Requiere Nivel 1; la parte de AUR aún es un *draft*. |
+| `arxy install arxy-gaming [--dry-run]` | Despliega el stack de *gaming* ajustado a tu GPU. Si la detección no basta, usa `arxy-gaming-amd`, `arxy-gaming-intel` o `arxy-gaming-nvidia`. La parte de AUR se compila en espacio de usuario. Requiere Nivel 1. |
 | `arxy host-bridge [--daemon|--stop|--status]` | Gestiona el demonio *host-bridge*, encargado de pasar las notificaciones y los enlaces desde el *sandbox* hacia tu host. |
 
 Si algo se rompe, el flujo de rescate es simple: `arxy doctor` → `arxy doctor --fix` → `arxy quickstart`.
@@ -68,7 +68,7 @@ arxy doctor --json | jq '{nivel: .level, libc: .libc.kind, gpu: .gpu.vendor}'
 
 El comando `setup` guarda tu perfil de hardware en `/var/lib/arxy/hardware.json` (es una caché atómica, con `format: 1`, que solo se reescribe si hay cambios). Luego, `arxy version --verbose` lee este archivo y te avisa si has cambiado de kernel o de driver NVIDIA, mientras que `doctor --json` siempre hace el cálculo en tiempo real. Refrescar este perfil sin tener que pasar por `setup` es una tarea pendiente.
 
-**Configuración:** Tienes configuración a nivel de sistema en `/etc/arxy/arxy.conf` y a nivel de usuario en `~/.config/arxy/config`. Absolutamente todo se puede sobrescribir mediante variables de entorno (con el prefijo `ARXY_*`).
+**Configuración:** Tienes configuración a nivel de sistema en `/etc/arxy/arxy.conf` y a nivel de usuario en `~/.config/arxy/config`. Son ficheros de datos, no scripts de shell: usa una asignación `ARXY_CLAVE=valor` por línea, con comillas simples o dobles opcionales. No se expanden variables ni se ejecutan comandos, tampoco bajo `sudo`. Las claves admitidas en fichero son `ARXY_ROOT`, `ARXY_IMAGE_URL`, `ARXY_IMAGE_SHA256`, `ARXY_SIGNATURE_POLICY`, `ARXY_LEVEL`, `ARXY_GPG_CHECK`, `ARXY_KEEP_PKG_CACHE`, `ARXY_NO_AUTO_DEDUP`, `ARXY_NO_BRIDGE`, `ARXY_BRIDGE_ALLOWLIST` y `ARXY_BRIDGE_BIN`. Los valores de ejecución documentados siguen pudiendo sobrescribirse mediante el entorno.
 
 ## Arquitectura: Los 2 niveles de ejecución
 
@@ -113,12 +113,13 @@ El proyecto está escrito en Bash puro; la regla de oro es no introducir depende
 Antes de hacer un commit o abrir una Pull Request, asegúrate de pasar estos checks:
 
 ```bash
-make src/arxy && git diff --exit-code src/arxy   # comprueba que el build sea byte-idéntico
-bash -n lib/*.sh src/arxy install.sh && shellcheck -S warning src/arxy install.sh
+make sync
+make verify               # sintaxis, ShellCheck si existe, suite determinista y copias de empaquetado
+make test-all              # opcional: bridge/root/hardware; cada prueba mantiene sus guardas
 
 ```
 
-**Nota sobre la estructura:** Los archivos en `lib/*.sh` son la fuente de la verdad (el ejecutable final `src/arxy` simplemente se autogenera concatenando cosas, y el instalador lo extrae directamente de ahí). El archivo `config/arxy.conf` también es el canónico, y todo lo que veas en `packaging/void/arxy/files/` son copias empaquetadas para `xbps` (el CI fallará si detecta que divergen).
+**Nota sobre la estructura:** Los archivos en `lib/*.sh` son la fuente de la verdad (el ejecutable final `src/arxy` simplemente se autogenera concatenándolos, y el instalador lo extrae directamente de ahí). Cada grupo tiene una responsabilidad: estado/setup/GC (`20`–`22`), paquetes oficiales/AUR/mantenimiento (`30`–`32`) y detección/doctor/JSON (`60`–`62`). El archivo `config/arxy.conf` también es el canónico, y todo lo que veas en `packaging/void/arxy/files/` son copias empaquetadas para `xbps` (el CI fallará si detecta que divergen).
 
 Por favor, antes de pushear, corre la matriz de pruebas del repositorio hermano `arxy-image` (`tests/matrix.sh`), tienes las instrucciones en `arxy-image/tests/README.md`. Además, echa un vistazo al archivo `AGENTS.md`: contiene las reglas de diseño derivadas de *bugs* reales que nos costó sangre encontrar.
 

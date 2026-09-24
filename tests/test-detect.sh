@@ -10,8 +10,12 @@ HERE="$(dirname "$0")"
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
 # shellcheck source=../lib/10-level.sh
 . "$HERE/../lib/10-level.sh" >/dev/null 2>&1
-# shellcheck source=../lib/60-hw.sh
-. "$HERE/../lib/60-hw.sh" >/dev/null 2>&1
+# shellcheck source=../lib/60-detect.sh
+. "$HERE/../lib/60-detect.sh" >/dev/null 2>&1
+# shellcheck source=../lib/61-doctor.sh
+. "$HERE/../lib/61-doctor.sh" >/dev/null 2>&1
+# shellcheck source=../lib/62-json.sh
+. "$HERE/../lib/62-json.sh" >/dev/null 2>&1
 export -f detect_libc detect_nvidia_ver detect_kmods detect_dev_nodes
 D="$(mktemp -d)"
 trap 'rm -rf "$D"' EXIT

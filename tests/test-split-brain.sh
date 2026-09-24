@@ -52,5 +52,14 @@ else
     echo "PASS: T4 ARXY_ROOT vacio rechazado"
 fi
 
+# T5: las operaciones destructivas asumen una raiz absoluta y nunca '/'.
+for bad_root in / relative/root; do
+    if HOME="$D/h1" XDG_CONFIG_HOME="$D/h1/.config" ARXY_ROOT="$bad_root" bash -c '. "$0" >/dev/null 2>&1' "$LIB" 2>/dev/null; then
+        echo "FAIL: T5 ARXY_ROOT inseguro aceptado: $bad_root"; FAIL=$((FAIL+1))
+    else
+        echo "PASS: T5 ARXY_ROOT inseguro rechazado: $bad_root"
+    fi
+done
+
 echo "== resultado: $([[ $FAIL -eq 0 ]] && echo TODO_OK || echo "$FAIL FALLOS")${SKIP:+ ($SKIP SKIP)}"
 exit $FAIL
