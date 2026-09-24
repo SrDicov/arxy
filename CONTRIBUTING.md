@@ -33,13 +33,7 @@ Vale lo que dice `AGENTS.md`. Resumen:
 
 ## Tests
 
-Cada test es `bash tests/test-*.sh` y sigue siendo ejecutable por separado. Antes del PR:
-
-```bash
-make sync
-make verify
-make test-all  # cuando el entorno permite bridge/root/hardware
-```
+Cada test es `bash tests/test-*.sh` y sigue siendo ejecutable por separado. Antes del PR, pasa el gate canónico de [AGENTS.md](AGENTS.md).
 
 Los tests que usan `src/arxy`, siempre después de `make sync` (si no,
 mienten con el binario viejo). Suites en secuencia, nunca en paralelo.

@@ -110,14 +110,7 @@ Not fully automated, Steam has its quirks:
 
 Bash only; the golden rule is no new dependencies.
 
-Before committing or opening a PR, pass these checks:
-
-```bash
-make sync
-make verify               # syntax, ShellCheck when installed, deterministic suite, packaging copies
-make test-all              # optional: bridge/root/hardware tests; each keeps its own guards
-
-```
+Before committing or opening a PR, pass the canonical gate in [AGENTS.md](AGENTS.md).
 
 **On layout:** `lib/*.sh` is source of truth (the final `src/arxy` binary just concatenates it; the installer pulls it straight from the clone). Modules have one responsibility: state/setup/GC (`20`–`22`), official packages/AUR/maintenance (`30`–`32`), and detection/doctor/JSON (`60`–`62`). `config/arxy.conf` is canonical too, and everything under `packaging/void/arxy/files/` are xbps packaging copies (CI fails on drift).
 

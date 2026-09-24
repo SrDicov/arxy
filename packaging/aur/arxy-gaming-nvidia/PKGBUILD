@@ -1,8 +1,7 @@
 # Maintainer: arxy contributors
-# Meta-paquete gaming NVIDIA (draft: aun no publicado en AUR).
+# Meta-paquete gaming (draft: aun no publicado en AUR).
 # Lista canonica en bash: arxy_gaming_pkgs() en lib/30-package.sh
-# (sincronizar al publicar; la version de nvidia-utils la fija arxy
-# contra el modulo del host, aqui va sin pin).
+# (sincronizar al publicar).
 pkgname=arxy-gaming-nvidia
 pkgver=1.0.0
 pkgrel=1

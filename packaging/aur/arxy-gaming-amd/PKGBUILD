@@ -1,5 +1,5 @@
 # Maintainer: arxy contributors
-# Meta-paquete gaming AMD (draft: aun no publicado en AUR).
+# Meta-paquete gaming (draft: aun no publicado en AUR).
 # Lista canonica en bash: arxy_gaming_pkgs() en lib/30-package.sh
 # (sincronizar al publicar).
 pkgname=arxy-gaming-amd
