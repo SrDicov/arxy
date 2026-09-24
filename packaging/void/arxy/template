@@ -2,7 +2,7 @@
 # Uso: copiar esta carpeta 'arxy/' a void-packages/srcpkgs/ y compilar:
 #   ./xbps-src pkg arxy
 pkgname=arxy
-version=0.6.0
+version=0.6.1
 revision=1
 # archs="noarch"  # noarch no soportado por z-repo/check_outdated.py (skipped silencioso)
 # build_style=meta # build_style=meta deprecado en xbps-src, reemplazado por instalación directa (FILESDIR)
