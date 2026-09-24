@@ -6,6 +6,8 @@
 set -uo pipefail
 FAIL=0
 HERE="$(dirname "$0")"
+# shellcheck source=lib.sh
+. "$HERE/lib.sh" # ARXY_BIN default + te/finish (t estricto local: unico, no duplicado)
 # shellcheck source=../lib/00-head.sh
 . "$HERE/../lib/00-head.sh" >/dev/null 2>&1
 # shellcheck source=../lib/10-level.sh
@@ -20,19 +22,14 @@ export -f detect_libc detect_nvidia_ver detect_kmods detect_dev_nodes
 D="$(mktemp -d)"
 trap 'rm -rf "$D"' EXIT
 
+# t estricto LOCAL a proposito: compara igualdad exacta + rc (el t de lib.sh
+# es grep-contenido para e2e). Cuerpo unico en la suite, nada que deduplicar.
 t() { # t <nombre> <esperado> -- <bash -c ...> : contenido + rc 0 (M10: sin || true global)
     local name="$1" want="$2"; shift 2; shift
     local got rc
     got="$("$@")" 2>/dev/null; rc=$?
     if [[ $rc -eq 0 && "$got" == "$want" ]]; then echo "PASS: $name";
     else echo "FAIL: $name (quiero '$want' rc 0, tengo '$got' rc $rc)"; FAIL=$((FAIL+1)); fi
-}
-te() { # te <nombre> <rc> -- <bash -c ...> : vacio + rc exacto (ausencia legitima vs crash)
-    local name="$1" wantrc="$2"; shift 2; shift
-    local got rc
-    got="$("$@")" 2>/dev/null; rc=$?
-    if [[ $rc -eq "$wantrc" && -z "$got" ]]; then echo "PASS: $name";
-    else echo "FAIL: $name (quiero vacio rc $wantrc, tengo '$got' rc $rc)"; FAIL=$((FAIL+1)); fi
 }
 
 # --- libc: el host dice la verdad; los mocks fuerzan cada rama
@@ -85,5 +82,18 @@ $D/dev/nvidia0
 $D/dev/fuse" -- bash -c 'ARXY_DEV_PATH="'"$D"'/dev" detect_dev_nodes'
 te "dev vacío" 0 -- bash -c 'ARXY_DEV_PATH="'"$D"'/empty" detect_dev_nodes'
 
-echo "== resultado: $([[ $FAIL -eq 0 ]] && echo TODO_OK || echo "$FAIL FALLOS")"
-exit $FAIL
+echo "== musl-glibc-stack en host musl real (rama de test-musl-real.sh) =="
+# Sonda honesta: la misma funcion que usa produccion (dual-loader arbitra
+# ldd; la mera presencia de ld-musl no hace musl al host). Nunca instala
+# nada: solo informa. Sin host musl: SKIP honesto.
+if [[ "$(detect_libc 2>/dev/null)" != musl ]]; then
+    echo "SKIP: host $(detect_libc 2>/dev/null) (musl-glibc-stack solo aplica en musl)"
+else
+    if "$ARXY_BIN" doctor --fix --json 2>/dev/null | grep -q '"id": "musl-glibc-stack", "applicable": true'; then
+        echo "PASS: musl-glibc-stack aplicable en musl real"
+    else
+        echo "FAIL: musl-glibc-stack no aplicable en musl real"; FAIL=$((FAIL+1))
+    fi
+fi
+
+finish

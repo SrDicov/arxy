@@ -6,6 +6,9 @@
 # Depende de red solo si falta mesa-utils (se instala con sudo no interactivo).
 set -uo pipefail
 FAIL=0; SKIP=0
+HERE_HW="$(dirname "$0")"
+# shellcheck source=lib.sh
+. "$HERE_HW/lib.sh" >/dev/null 2>&1 # solo ARXY_BIN default; pass/skip/fail propios
 # Sin bridge aqui (auto-arranque ensuciaria la sesion; el bridge se prueba
 # en test-host-bridge.sh y test-bridge-in-container.sh).
 export ARXY_NO_BRIDGE=1
@@ -117,6 +120,32 @@ else
     if [[ -n "$_pids" && "${_crash:-0}" -eq 0 ]]; then
         pass "app GUI viva 12s sin crash${_win:+ + ventana: ${_win}}"
     else fail "app GUI (pids='${_pids:-ninguno}' crash=$_crash)"; fi
+fi
+
+# T8 presencia de Steam en el rootfs real (plegado de test-steam-presence.sh).
+# NUNCA lanza UI ni ejecuta el binario (ni `steam --help`: se cuelga):
+# presencia = test -x, nunca --version (AGENTS.md regla 5). Sin rootfs real
+# o sin steam.desktop: SKIP honesto (no FAIL).
+_R="${ARXY_ROOT:-/var/lib/arxy/root}"
+if [[ ! -d "$_R/usr/bin" ]]; then
+    skip "steam (sin rootfs real en $_R)"
+elif [[ ! -f "$_R/usr/share/applications/steam.desktop" ]]; then
+    skip "steam (sin steam.desktop en $_R)"
+else
+    if [[ -x "$_R/usr/bin/steam" ]]; then pass "steam presente (+x)";
+    else fail "steam ausente en $_R/usr/bin/steam"; fi
+
+    # Regla 5 (pipefail): capturar en variable y grepear despues.
+    _desk_out="$(grep -E '^Exec=' "$_R/usr/share/applications/steam.desktop" 2>&1 || true)"
+    if grep -q '^Exec=/usr/bin/steam' <<<"$_desk_out"; then pass "steam.desktop Exec";
+    else fail "steam.desktop sin Exec=/usr/bin/steam (tengo [$_desk_out])"; fi
+
+    if [[ -e "$_R/usr/bin/proton-ge" ]]; then
+        if [[ -x "$_R/usr/bin/proton-ge" ]]; then pass "proton-ge presente (+x)";
+        else fail "proton-ge sin +x en $_R/usr/bin/proton-ge"; fi
+    else
+        echo "INFO: proton-ge ausente (opcional, no bloquea)"
+    fi
 fi
 
 echo "== resultado: $([[ $FAIL -eq 0 ]] && echo TODO_OK || echo "$FAIL FALLOS") ($SKIP skips)"

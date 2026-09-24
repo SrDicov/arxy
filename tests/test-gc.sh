@@ -6,6 +6,8 @@
 set -uo pipefail
 FAIL=0
 HERE="$(dirname "$0")"
+# shellcheck source=lib.sh
+. "$HERE/lib.sh" # ok/no/finish (mkroot/clean locales: gc purga build/, difieren)
 ARXY_ROOT="/tmp/vgc/root"
 export ARXY_ROOT
 # shellcheck source=../lib/00-head.sh
@@ -28,10 +30,7 @@ R="$ARXY_ROOT"
 rm -rf "$D"; mkdir -p "$D"
 trap 'rm -rf "$D"' EXIT
 
-ok() { echo "PASS: $1"; }
-no() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
-
-mkroot() { # <$dir> [$mark] : rootfs valido para _image_ok
+mkroot() { # <$dir> [$mark] : + cache pacman (la purga gc la mide)
     mkdir -p "$1/usr/bin" "$1/etc" "$1/var/cache/pacman/pkg"
     : > "$1/usr/bin/bash"; : > "$1/usr/bin/pacman"
     chmod +x "$1/usr/bin/bash" "$1/usr/bin/pacman"
@@ -123,5 +122,4 @@ cmd_gc --apply --yes >/dev/null 2>&1
 [[ ! -d "$R.old" ]] && ok "T8 control purga" || no "T8 control purga"
 clean
 
-echo "== resultado: $([[ $FAIL -eq 0 ]] && echo TODO_OK || echo "$FAIL FALLOS")"
-exit $FAIL
+finish

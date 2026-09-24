@@ -10,8 +10,8 @@ skipped=0
 
 for test_file in "$ROOT"/tests/test-*.sh; do
     case "${test_file##*/}" in
-        test-hardware.sh|test-arxy-gaming-real.sh|test-musl-real.sh|\
-        test-atomic-setup.sh|test-audio-e2e.sh|test-input-e2e.sh|\
+        test-hardware.sh|test-arxy-gaming-real.sh|\
+        test-atomic-setup.sh|test-devices-e2e.sh|\
         test-doctor-fix-apply.sh|test-bridge-*.sh|test-host-bridge.sh|\
         test-desktop-shims.sh)
             if [[ "${ARXY_TEST_ALL:-}" == 1 ]]; then
