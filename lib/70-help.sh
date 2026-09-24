@@ -16,7 +16,7 @@ Dia a dia:
   install|i <pkg...>   instalar paquetes de Arch (+ crea lanzadores .desktop)
   install gpu-amd|gpu-nvidia  stack GL completo para esas GPUs (+~170MB)
   install arxy-gaming[-amd|-intel|-nvidia] [--dry-run]  stack gaming (auto u override)
-  install --aur <pkg>  instalar de AUR (precompilados -bin, motor paru)
+  install --aur <pkg>  instalar de AUR (precompilados -bin, paru o git+RPC)
   remove|rm <pkg...>   desinstalar (+ borra sus lanzadores)
   update|up            actualizar todo el subsistema (pacman -Syu)
   run|r <bin|ruta> [...] ejecutar programa del subsistema o binario suelto

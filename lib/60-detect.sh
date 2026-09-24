@@ -22,6 +22,10 @@ is_mesa_mini() { # mini = build externo sin firma conocida
     grep -q '^Packager.*Unknown' <<<"$_qi"
 }
 
+mesa_hold_active() { # IgnorePkg=mesa en pacman.conf (mini protegido del update)
+    grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null
+}
+
 # Mocks de deteccion y salidas componibles sin jq: kmods en una línea
 # (espacios), dev_nodes una
 # ruta por línea, el resto valor único o vacío. Mocks (patrón ARXY_SYS_DRM_PATH):

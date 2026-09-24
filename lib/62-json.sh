@@ -62,9 +62,6 @@ probe_overlayfs() ( # subshell: 1 si overlay rootless monta en userns, sin resto
     t="" # el EXIT trap queda idempotente
     return 0
 )
-probe_mount_setattr() { kver_at_least 5 12 && echo 1 || echo 0; } # existe desde 5.12
-probe_seccomp() { kver_at_least 3 17 && echo 1 || echo 0; } # seccomp-bpf desde 3.17
-probe_landlock() { kver_at_least 5 13 && echo 1 || echo 0; } # landlock desde 5.13
 probe_cgroupv2() {
     command -v stat >/dev/null 2>&1 || { echo 0; return 0; }
     [[ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null || true)" == cgroup2fs ]] && echo 1 || echo 0
@@ -121,10 +118,12 @@ emit_hardware_json() {
     fi
     local -a fixes=()
     local -A fix=()
-    local fid
+    local fid fixes_body="" _first=1
     for fid in "${FIX_IDS[@]}"; do
         fix_probe "$fid" fix
         [[ "${fix[status]}" == todo ]] && fixes+=("$fid")
+        if [[ "$_first" == 1 ]]; then _first=0; else fixes_body+=', '; fi
+        fixes_body+="$(_fix_json_entry "$fid" fix)"
     done
     local rver=""
     [[ -f "$ARXY_VERSION_FILE" ]] && rver="$(version_field date || true)"
@@ -139,13 +138,13 @@ emit_hardware_json() {
     printf ', "kernel": {"arch": %s, "release": %s}' "$(json_str_or_null "$karch")" "$(json_str_or_null "$krel")"
     printf ', "userns": %s' "$(json_bool "$(probe_userns)")"
     printf ', "overlayfs_rootless": %s' "$(json_bool "$(probe_overlayfs)")"
-    printf ', "mount_setattr": %s' "$(json_bool "$(probe_mount_setattr)")"
-    printf ', "seccomp": %s' "$(json_bool "$(probe_seccomp)")"
+    printf ', "mount_setattr": %s' "$(json_bool "$(kver_at_least 5 12 && echo 1 || echo 0)")"
+    printf ', "seccomp": %s' "$(json_bool "$(kver_at_least 3 17 && echo 1 || echo 0)")"
     printf ', "mount_setattr_method": "kernel-version>=5.12"'
     printf ', "seccomp_method": "kernel-version>=3.17"'
     printf ', "cgroupv2": %s' "$(json_bool "$(probe_cgroupv2)")"
     printf ', "cgroupv2_method": "cgroup2fs-en-/sys/fs/cgroup"'
-    printf ', "landlock": {"available": %s, "abi": null}' "$(json_bool "$(probe_landlock)")"
+    printf ', "landlock": {"available": %s, "abi": null}' "$(json_bool "$(kver_at_least 5 13 && echo 1 || echo 0)")"
     printf ', "gpu": {"vendor": "%s", "driver": null, "render_node": %s}' "$gv" "$(json_str_or_null "$rn")"
     printf ', "nvidia": {"present": %s, "version": %s, "usable": %s, "reason": %s}' \
         "$(json_bool "$nv_present")" "$(json_str_or_null "$nv")" "$(json_bool "$nv_usable")" "$(json_str "$nv_reason")"
@@ -156,7 +155,7 @@ emit_hardware_json() {
     printf ', "rootfs": {"path": %s, "present": %s, "version": %s}' \
         "$(json_str "$ARXY_ROOT")" "$(json_bool "$root_present")" "$(json_str_or_null "$rver")"
     printf ', "fixes_available": %s' "$(printf '%s\n' "${fixes[@]}" | sort | json_arr)"
-    printf ', "fixes": %s' "$(fixes_json)"
+    printf ', "fixes": [%s]' "$fixes_body"
     printf ', "fixes_applied": []'
     local sig_pol="${ARXY_SIGNATURE_POLICY:-optional}" sig_avail=0 sig_last=0
     command -v minisign >/dev/null 2>&1 && sig_avail=1
@@ -180,7 +179,7 @@ write_hardware_json() { # <json> : atómico + solo-si-cambia; nunca falla setup
     [[ -n "$tmp" ]] || { msg "aviso: sin temporal para hardware.json" >&2; return 0; }
     printf '%s\n' "$json" >"$tmp" 2>/dev/null || { rm -f "$tmp"; msg "aviso: no pude escribir hardware.json" >&2; return 0; }
     chmod 0644 "$tmp" 2>/dev/null || true
-    sync "$tmp" 2>/dev/null || sync 2>/dev/null || true # durabilidad best-effort
+    data_sync "$tmp" # durabilidad best-effort
     mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; msg "aviso: no pude publicar hardware.json" >&2; return 0; }
     return 0
 }

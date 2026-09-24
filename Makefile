@@ -41,6 +41,7 @@ test-all: src/arxy
 	ARXY_TEST_ALL=1 bash tests/run.sh
 
 verify: lint test
+	git diff --exit-code src/arxy
 	cmp src/arxy packaging/void/arxy/files/arxy
 	cmp config/arxy.conf packaging/void/arxy/files/arxy.conf
 	cmp config/arxy.pub packaging/void/arxy/files/arxy.pub

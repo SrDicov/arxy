@@ -138,29 +138,27 @@ _desktop_tag_missing() { # <ruta> -> imprime pkg si migro; rc 1 si ya tenia tag
 }
 
 cmd_desktop_migrate() { # etiqueta legacy sin X-Arxy-Pkg (idempotente)
-    local f n=0 s=0 pkg
+    desktop_migrate_auto verbose
+}
+
+desktop_migrate_auto() { # [verbose] tras install/update: aviso a stderr, nunca falla
+    # Núcleo único del migrate: el cmd pide detalle por lanzador + resumen
+    # (msg/stdout); el hook auto solo avisa a stderr si migró algo.
+    # Solo añade el tag (no toca Name/Exec): no requiere update-desktop-database.
+    local verbose="${1:-}" f n=0 s=0 pkg
     shopt -s nullglob
     for f in "$REAL_APPS"/arxy-*.desktop; do
         if pkg="$(_desktop_tag_missing "$f")"; then
-            msg "migrate: ${f##*/} -> X-Arxy-Pkg=$pkg"
             n=$((n + 1))
+            [[ -n "$verbose" ]] && msg "migrate: ${f##*/} -> X-Arxy-Pkg=$pkg"
         else
             s=$((s + 1))
         fi
     done
     shopt -u nullglob
-    msg "migrate: $n migrados, $s ya al día"
-}
-
-desktop_migrate_auto() { # tras install/update: aviso a stderr, nunca falla
-    # Solo añade el tag (no toca Name/Exec): no requiere update-desktop-database.
-    local f n=0
-    shopt -s nullglob
-    for f in "$REAL_APPS"/arxy-*.desktop; do
-        _desktop_tag_missing "$f" >/dev/null && n=$((n + 1)) || true
-    done
-    shopt -u nullglob
-    if ((n > 0)); then
+    if [[ -n "$verbose" ]]; then
+        msg "migrate: $n migrados, $s ya al día"
+    elif ((n > 0)); then
         printf 'arxy: aviso: %d lanzadores legacy migrados (X-Arxy-Pkg)\n' "$n" >&2
     fi
     return 0

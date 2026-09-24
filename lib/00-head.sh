@@ -48,7 +48,7 @@ _config_trim() { # <texto>: resultado en _CONFIG_TEXT
     _CONFIG_TEXT="${_CONFIG_TEXT%"${_CONFIG_TEXT##*[![:space:]]}"}"
 }
 
-_config_decode() { # <valor>: resultado literal en _CONFIG_VALUE
+_config_decode() { # <valor>: resultado literal en _CONFIG_VALUE (sin escapes; # tras espacio es comentario solo sin comillas)
     _config_trim "$1"
     local raw="$_CONFIG_TEXT" n=${#_CONFIG_TEXT}
     _CONFIG_VALUE=""
@@ -59,7 +59,9 @@ _config_decode() { # <valor>: resultado literal en _CONFIG_VALUE
         [[ "$n" -ge 2 && "$raw" == *\' ]] || return 1
         _CONFIG_VALUE="${raw:1:n-2}"
     else
-        _CONFIG_VALUE="$raw"
+        _CONFIG_VALUE="${raw%%[[:space:]]#*}"
+        _config_trim "$_CONFIG_VALUE"
+        _CONFIG_VALUE="$_CONFIG_TEXT"
     fi
 }
 
@@ -71,12 +73,12 @@ _config_read() { # <fichero>: asignaciones permitidas, sin eval/source
         _config_trim "$line"
         line="$_CONFIG_TEXT"
         [[ -z "$line" || "$line" == \#* ]] && continue
-        if [[ ! "$line" =~ ^([A-Z_][A-Z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+        if [[ ! "$line" =~ ^(export[[:space:]]+)?([A-Z_][A-Z0-9_]*)[[:space:]]*=(.*)$ ]]; then
             printf 'arxy: aviso: %s:%d: linea de configuracion ignorada\n' "$file" "$line_no" >&2
             continue
         fi
-        key="${BASH_REMATCH[1]}"
-        raw="${BASH_REMATCH[2]}"
+        key="${BASH_REMATCH[2]}"
+        raw="${BASH_REMATCH[3]}"
         if ! _config_key_allowed "$key"; then
             printf 'arxy: aviso: %s:%d: clave no soportada: %s\n' "$file" "$line_no" "$key" >&2
             continue

@@ -123,11 +123,8 @@ run_in() {
 run_pacman() {
     level
     if [[ "$_ARXY_LEVEL" == 2 ]]; then
-        # Lecturas sin namespace: reescribir Include absolutos hacia el rootfs.
-        mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
         local _ro
-        _ro="$(mktemp "$ARXY_ROOT/tmp/pacman-arxy-ro.XXXXXX")" || return 1
-        sed "s|/etc/pacman.d/|$ARXY_ROOT/etc/pacman.d/|g" "$ARXY_ROOT/etc/pacman.conf" > "$_ro" 2>/dev/null || { rm -f "$_ro"; return 1; }
+        _ro="$(pacman_tmpconf ro)" || return 1
         in_sys /usr/bin/pacman --root "$ARXY_ROOT" --config "$_ro" \
             --dbpath "$ARXY_ROOT/var/lib/pacman" "$@"
         local _rc=$?
@@ -229,17 +226,34 @@ in_chroot() {
     return $rc
 }
 
+# Conf temporal de pacman para nivel 2 (el llamador la borra tras usarla).
+pacman_tmpconf() { # ro|mut : ruta por stdout; 1 = sin temporal, 2 = transform fallo
+    mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
+    local _t _tpl="$ARXY_ROOT/tmp/pacman-arxy.XXXXXX"
+    if [[ "${1:-}" == ro ]]; then
+        _tpl="$ARXY_ROOT/tmp/pacman-arxy-ro.XXXXXX"
+    else
+        rm -f "$ARXY_ROOT"/tmp/pacman-arxy-*.conf 2>/dev/null || true
+    fi
+    _t="$(mktemp "$_tpl")" || return 1 # busybox exige plantilla TERMINADA en XXXXXX (.conf no vale)
+    if [[ "${1:-}" == ro ]]; then
+        # Lecturas sin namespace: reescribir Include absolutos hacia el rootfs.
+        sed "s|/etc/pacman.d/|$ARXY_ROOT/etc/pacman.d/|g" "$ARXY_ROOT/etc/pacman.conf" > "$_t" 2>/dev/null || { rm -f "$_t"; return 2; }
+    else
+        # Escrituras en chroot: CheckSpace no puede resolver / ahi dentro.
+        grep -v '^[[:space:]]*CheckSpace' "$ARXY_ROOT/etc/pacman.conf" > "$_t" || { rm -f "$_t"; return 2; }
+    fi
+    printf '%s' "$_t"
+}
+
 # pacman que escribe: bwrap en nivel 1, chroot en nivel 2 (scriptlets nativos).
 pacman_mut() {
     level
     if [[ "$_ARXY_LEVEL" == 2 ]]; then
-        # CheckSpace no puede resolver / dentro de este chroot.
-        mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
-        rm -f "$ARXY_ROOT"/tmp/pacman-arxy-*.conf 2>/dev/null || true
-        local tmpconf
-        # busybox mktemp exige que la plantilla TERMINE en XXXXXX (.conf no vale).
-        tmpconf="$(mktemp "$ARXY_ROOT/tmp/pacman-arxy.XXXXXX")" || die "no pude crear conf temporal (¿espacio en $ARXY_ROOT/tmp?)"
-        grep -v '^[[:space:]]*CheckSpace' "$ARXY_ROOT/etc/pacman.conf" > "$tmpconf" || die "imagen rota: sin pacman.conf (reinstala con 'sudo $PROG setup')"
+        local tmpconf _pcc=0
+        tmpconf="$(pacman_tmpconf mut)"; _pcc=$?
+        (( _pcc == 1 )) && die "no pude crear conf temporal (¿espacio en $ARXY_ROOT/tmp?)"
+        (( _pcc != 0 )) && die "imagen rota: sin pacman.conf (reinstala con 'sudo $PROG setup')"
         in_chroot /usr/bin/pacman --config "/tmp/${tmpconf##*/}" "$@"
         local rc=$?
         rm -f "$tmpconf" || true

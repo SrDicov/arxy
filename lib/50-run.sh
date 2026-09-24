@@ -138,7 +138,7 @@ cmd_shell() {
         # shellcheck disable=SC2145
         run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " -- /bin/bash -c "$*"
     else
-        run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " --setenv ARXY_ACTIVE 1 -- /bin/bash
+        run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " -- /bin/bash
     fi
 }
 

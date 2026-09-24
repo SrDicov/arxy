@@ -55,7 +55,7 @@ fix_probe() { # <fix-id> <nombre-array-asociativo>
         hold-mesa)
             if ! image_ok; then
                 _fix_result "$result_name" skip "sin rootfs verificado"
-            elif is_mesa_mini && ! grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null; then
+            elif is_mesa_mini && ! mesa_hold_active; then
                 _fix_result "$result_name" todo "un update traeria mesa oficial +170MB" \
                     "añadir 'IgnorePkg = mesa' bajo [options] de pacman.conf"
             else
@@ -131,23 +131,29 @@ fix_probe() { # <fix-id> <nombre-array-asociativo>
     return 0
 }
 
+_fix_json_entry() { # <fid> <array-asoc> : un objeto {...} (separadores los pone el llamador)
+    local fid="$1"
+    local -n _e="$2"
+    local st="${_e[status]}" reason="${_e[reason]}" action="${_e[action]}" app phase wd
+    if [[ "$st" == todo ]]; then app=true; else app=false; fi
+    case "$fid" in hold-mesa|staging-cleanup) phase=null ;; *) phase=4 ;; esac
+    if [[ -n "$action" ]]; then wd="$(json_str "$action")"; else wd=""; fi
+    printf '{"id": "%s", "applicable": %s, "destructive": false, "requires_root": true' "$fid" "$app"
+    printf ', "reason": %s' "$(json_str "$reason")"
+    if [[ -n "$wd" ]]; then printf ', "would_do": [%s]' "$wd"; else printf ', "would_do": []'; fi
+    printf ', "phase": %s' "$phase"
+    [[ -n "${_e[opt_in]}" ]] && printf ', "opt_in": true'
+    printf '}'
+}
+
 fixes_json() { # array "fixes" para --json (fixes_available sigue siendo [ids])
-    local first=1 fid st reason action app phase wd
+    local first=1 fid
     local -A fix=()
     printf '['
     for fid in "${FIX_IDS[@]}"; do
         fix_probe "$fid" fix
-        st="${fix[status]}"; reason="${fix[reason]}"; action="${fix[action]}"
-        if [[ "$st" == todo ]]; then app=true; else app=false; fi
-        case "$fid" in hold-mesa|staging-cleanup) phase=null ;; *) phase=4 ;; esac
-        if [[ -n "$action" ]]; then wd="$(json_str "$action")"; else wd=""; fi
         if [[ "$first" == 1 ]]; then first=0; else printf ', '; fi
-        printf '{"id": "%s", "applicable": %s, "destructive": false, "requires_root": true' "$fid" "$app"
-        printf ', "reason": %s' "$(json_str "$reason")"
-        if [[ -n "$wd" ]]; then printf ', "would_do": [%s]' "$wd"; else printf ', "would_do": []'; fi
-        printf ', "phase": %s' "$phase"
-        [[ -n "${fix[opt_in]}" ]] && printf ', "opt_in": true'
-        printf '}'
+        _fix_json_entry "$fid" fix
     done
     printf ']'
     return 0
@@ -157,7 +163,7 @@ fix_apply() { # <fix-id>: 0 aplicado, 1 fallo, 2 no implementado
     case "$1" in
         hold-mesa)
             sed -i '/^\[options\]/a IgnorePkg   = mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null \
-                && grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null
+                && mesa_hold_active
             ;;
         staging-cleanup)
             recover_staging >/dev/null
@@ -309,7 +315,7 @@ cmd_version() {
     echo "nivel: $_ARXY_LEVEL (1=bwrap, 2=sin namespaces)"
     echo "gpu: $(detect_gpu || echo 'no discreta (intel o softpipe)')"
     echo "rootfs: $(du -sh "$ARXY_ROOT" 2>/dev/null | cut -f1) en $ARXY_ROOT"
-    if grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null; then
+    if mesa_hold_active; then
         echo "hold mesa-mini: activo"
     else
         echo "hold mesa-mini: ausente"

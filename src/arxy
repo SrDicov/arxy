@@ -48,7 +48,7 @@ _config_trim() { # <texto>: resultado en _CONFIG_TEXT
     _CONFIG_TEXT="${_CONFIG_TEXT%"${_CONFIG_TEXT##*[![:space:]]}"}"
 }
 
-_config_decode() { # <valor>: resultado literal en _CONFIG_VALUE
+_config_decode() { # <valor>: resultado literal en _CONFIG_VALUE (sin escapes; # tras espacio es comentario solo sin comillas)
     _config_trim "$1"
     local raw="$_CONFIG_TEXT" n=${#_CONFIG_TEXT}
     _CONFIG_VALUE=""
@@ -59,7 +59,9 @@ _config_decode() { # <valor>: resultado literal en _CONFIG_VALUE
         [[ "$n" -ge 2 && "$raw" == *\' ]] || return 1
         _CONFIG_VALUE="${raw:1:n-2}"
     else
-        _CONFIG_VALUE="$raw"
+        _CONFIG_VALUE="${raw%%[[:space:]]#*}"
+        _config_trim "$_CONFIG_VALUE"
+        _CONFIG_VALUE="$_CONFIG_TEXT"
     fi
 }
 
@@ -71,12 +73,12 @@ _config_read() { # <fichero>: asignaciones permitidas, sin eval/source
         _config_trim "$line"
         line="$_CONFIG_TEXT"
         [[ -z "$line" || "$line" == \#* ]] && continue
-        if [[ ! "$line" =~ ^([A-Z_][A-Z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+        if [[ ! "$line" =~ ^(export[[:space:]]+)?([A-Z_][A-Z0-9_]*)[[:space:]]*=(.*)$ ]]; then
             printf 'arxy: aviso: %s:%d: linea de configuracion ignorada\n' "$file" "$line_no" >&2
             continue
         fi
-        key="${BASH_REMATCH[1]}"
-        raw="${BASH_REMATCH[2]}"
+        key="${BASH_REMATCH[2]}"
+        raw="${BASH_REMATCH[3]}"
         if ! _config_key_allowed "$key"; then
             printf 'arxy: aviso: %s:%d: clave no soportada: %s\n' "$file" "$line_no" "$key" >&2
             continue
@@ -360,11 +362,8 @@ run_in() {
 run_pacman() {
     level
     if [[ "$_ARXY_LEVEL" == 2 ]]; then
-        # Lecturas sin namespace: reescribir Include absolutos hacia el rootfs.
-        mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
         local _ro
-        _ro="$(mktemp "$ARXY_ROOT/tmp/pacman-arxy-ro.XXXXXX")" || return 1
-        sed "s|/etc/pacman.d/|$ARXY_ROOT/etc/pacman.d/|g" "$ARXY_ROOT/etc/pacman.conf" > "$_ro" 2>/dev/null || { rm -f "$_ro"; return 1; }
+        _ro="$(pacman_tmpconf ro)" || return 1
         in_sys /usr/bin/pacman --root "$ARXY_ROOT" --config "$_ro" \
             --dbpath "$ARXY_ROOT/var/lib/pacman" "$@"
         local _rc=$?
@@ -466,17 +465,34 @@ in_chroot() {
     return $rc
 }
 
+# Conf temporal de pacman para nivel 2 (el llamador la borra tras usarla).
+pacman_tmpconf() { # ro|mut : ruta por stdout; 1 = sin temporal, 2 = transform fallo
+    mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
+    local _t _tpl="$ARXY_ROOT/tmp/pacman-arxy.XXXXXX"
+    if [[ "${1:-}" == ro ]]; then
+        _tpl="$ARXY_ROOT/tmp/pacman-arxy-ro.XXXXXX"
+    else
+        rm -f "$ARXY_ROOT"/tmp/pacman-arxy-*.conf 2>/dev/null || true
+    fi
+    _t="$(mktemp "$_tpl")" || return 1 # busybox exige plantilla TERMINADA en XXXXXX (.conf no vale)
+    if [[ "${1:-}" == ro ]]; then
+        # Lecturas sin namespace: reescribir Include absolutos hacia el rootfs.
+        sed "s|/etc/pacman.d/|$ARXY_ROOT/etc/pacman.d/|g" "$ARXY_ROOT/etc/pacman.conf" > "$_t" 2>/dev/null || { rm -f "$_t"; return 2; }
+    else
+        # Escrituras en chroot: CheckSpace no puede resolver / ahi dentro.
+        grep -v '^[[:space:]]*CheckSpace' "$ARXY_ROOT/etc/pacman.conf" > "$_t" || { rm -f "$_t"; return 2; }
+    fi
+    printf '%s' "$_t"
+}
+
 # pacman que escribe: bwrap en nivel 1, chroot en nivel 2 (scriptlets nativos).
 pacman_mut() {
     level
     if [[ "$_ARXY_LEVEL" == 2 ]]; then
-        # CheckSpace no puede resolver / dentro de este chroot.
-        mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
-        rm -f "$ARXY_ROOT"/tmp/pacman-arxy-*.conf 2>/dev/null || true
-        local tmpconf
-        # busybox mktemp exige que la plantilla TERMINE en XXXXXX (.conf no vale).
-        tmpconf="$(mktemp "$ARXY_ROOT/tmp/pacman-arxy.XXXXXX")" || die "no pude crear conf temporal (¿espacio en $ARXY_ROOT/tmp?)"
-        grep -v '^[[:space:]]*CheckSpace' "$ARXY_ROOT/etc/pacman.conf" > "$tmpconf" || die "imagen rota: sin pacman.conf (reinstala con 'sudo $PROG setup')"
+        local tmpconf _pcc=0
+        tmpconf="$(pacman_tmpconf mut)"; _pcc=$?
+        (( _pcc == 1 )) && die "no pude crear conf temporal (¿espacio en $ARXY_ROOT/tmp?)"
+        (( _pcc != 0 )) && die "imagen rota: sin pacman.conf (reinstala con 'sudo $PROG setup')"
         in_chroot /usr/bin/pacman --config "/tmp/${tmpconf##*/}" "$@"
         local rc=$?
         rm -f "$tmpconf" || true
@@ -1127,7 +1143,7 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
         die "parte AUR pendiente como root (makepkg prohibe root): completala como usuario: $PROG install --aur ${aur[*]}"
     fi
     # Flag interno de cadena (no exportarlo en tu shell: salta la parte
-    # AUR; y no renombrarlo con '_': need_root solo propaga ^ARXY_).
+    # AUR; y no renombrarlo con '_': solo PRIV_ENV_KEYS cruza need_root).
     unset ARXY_GAMING_AUR_DONE
     msg "gaming listo: $vendor (arxy-gaming-$vendor)"
 }
@@ -1872,29 +1888,27 @@ _desktop_tag_missing() { # <ruta> -> imprime pkg si migro; rc 1 si ya tenia tag
 }
 
 cmd_desktop_migrate() { # etiqueta legacy sin X-Arxy-Pkg (idempotente)
-    local f n=0 s=0 pkg
+    desktop_migrate_auto verbose
+}
+
+desktop_migrate_auto() { # [verbose] tras install/update: aviso a stderr, nunca falla
+    # Núcleo único del migrate: el cmd pide detalle por lanzador + resumen
+    # (msg/stdout); el hook auto solo avisa a stderr si migró algo.
+    # Solo añade el tag (no toca Name/Exec): no requiere update-desktop-database.
+    local verbose="${1:-}" f n=0 s=0 pkg
     shopt -s nullglob
     for f in "$REAL_APPS"/arxy-*.desktop; do
         if pkg="$(_desktop_tag_missing "$f")"; then
-            msg "migrate: ${f##*/} -> X-Arxy-Pkg=$pkg"
             n=$((n + 1))
+            [[ -n "$verbose" ]] && msg "migrate: ${f##*/} -> X-Arxy-Pkg=$pkg"
         else
             s=$((s + 1))
         fi
     done
     shopt -u nullglob
-    msg "migrate: $n migrados, $s ya al día"
-}
-
-desktop_migrate_auto() { # tras install/update: aviso a stderr, nunca falla
-    # Solo añade el tag (no toca Name/Exec): no requiere update-desktop-database.
-    local f n=0
-    shopt -s nullglob
-    for f in "$REAL_APPS"/arxy-*.desktop; do
-        _desktop_tag_missing "$f" >/dev/null && n=$((n + 1)) || true
-    done
-    shopt -u nullglob
-    if ((n > 0)); then
+    if [[ -n "$verbose" ]]; then
+        msg "migrate: $n migrados, $s ya al día"
+    elif ((n > 0)); then
         printf 'arxy: aviso: %d lanzadores legacy migrados (X-Arxy-Pkg)\n' "$n" >&2
     fi
     return 0
@@ -2069,7 +2083,7 @@ cmd_shell() {
         # shellcheck disable=SC2145
         run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " -- /bin/bash -c "$*"
     else
-        run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " --setenv ARXY_ACTIVE 1 -- /bin/bash
+        run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " -- /bin/bash
     fi
 }
 
@@ -2107,6 +2121,10 @@ is_mesa_mini() { # mini = build externo sin firma conocida
     local _qi
     _qi="$(run_pacman -Qi mesa 2>/dev/null || true)"
     grep -q '^Packager.*Unknown' <<<"$_qi"
+}
+
+mesa_hold_active() { # IgnorePkg=mesa en pacman.conf (mini protegido del update)
+    grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null
 }
 
 # Mocks de deteccion y salidas componibles sin jq: kmods en una línea
@@ -2215,7 +2233,7 @@ fix_probe() { # <fix-id> <nombre-array-asociativo>
         hold-mesa)
             if ! image_ok; then
                 _fix_result "$result_name" skip "sin rootfs verificado"
-            elif is_mesa_mini && ! grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null; then
+            elif is_mesa_mini && ! mesa_hold_active; then
                 _fix_result "$result_name" todo "un update traeria mesa oficial +170MB" \
                     "añadir 'IgnorePkg = mesa' bajo [options] de pacman.conf"
             else
@@ -2291,23 +2309,29 @@ fix_probe() { # <fix-id> <nombre-array-asociativo>
     return 0
 }
 
+_fix_json_entry() { # <fid> <array-asoc> : un objeto {...} (separadores los pone el llamador)
+    local fid="$1"
+    local -n _e="$2"
+    local st="${_e[status]}" reason="${_e[reason]}" action="${_e[action]}" app phase wd
+    if [[ "$st" == todo ]]; then app=true; else app=false; fi
+    case "$fid" in hold-mesa|staging-cleanup) phase=null ;; *) phase=4 ;; esac
+    if [[ -n "$action" ]]; then wd="$(json_str "$action")"; else wd=""; fi
+    printf '{"id": "%s", "applicable": %s, "destructive": false, "requires_root": true' "$fid" "$app"
+    printf ', "reason": %s' "$(json_str "$reason")"
+    if [[ -n "$wd" ]]; then printf ', "would_do": [%s]' "$wd"; else printf ', "would_do": []'; fi
+    printf ', "phase": %s' "$phase"
+    [[ -n "${_e[opt_in]}" ]] && printf ', "opt_in": true'
+    printf '}'
+}
+
 fixes_json() { # array "fixes" para --json (fixes_available sigue siendo [ids])
-    local first=1 fid st reason action app phase wd
+    local first=1 fid
     local -A fix=()
     printf '['
     for fid in "${FIX_IDS[@]}"; do
         fix_probe "$fid" fix
-        st="${fix[status]}"; reason="${fix[reason]}"; action="${fix[action]}"
-        if [[ "$st" == todo ]]; then app=true; else app=false; fi
-        case "$fid" in hold-mesa|staging-cleanup) phase=null ;; *) phase=4 ;; esac
-        if [[ -n "$action" ]]; then wd="$(json_str "$action")"; else wd=""; fi
         if [[ "$first" == 1 ]]; then first=0; else printf ', '; fi
-        printf '{"id": "%s", "applicable": %s, "destructive": false, "requires_root": true' "$fid" "$app"
-        printf ', "reason": %s' "$(json_str "$reason")"
-        if [[ -n "$wd" ]]; then printf ', "would_do": [%s]' "$wd"; else printf ', "would_do": []'; fi
-        printf ', "phase": %s' "$phase"
-        [[ -n "${fix[opt_in]}" ]] && printf ', "opt_in": true'
-        printf '}'
+        _fix_json_entry "$fid" fix
     done
     printf ']'
     return 0
@@ -2317,7 +2341,7 @@ fix_apply() { # <fix-id>: 0 aplicado, 1 fallo, 2 no implementado
     case "$1" in
         hold-mesa)
             sed -i '/^\[options\]/a IgnorePkg   = mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null \
-                && grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null
+                && mesa_hold_active
             ;;
         staging-cleanup)
             recover_staging >/dev/null
@@ -2469,7 +2493,7 @@ cmd_version() {
     echo "nivel: $_ARXY_LEVEL (1=bwrap, 2=sin namespaces)"
     echo "gpu: $(detect_gpu || echo 'no discreta (intel o softpipe)')"
     echo "rootfs: $(du -sh "$ARXY_ROOT" 2>/dev/null | cut -f1) en $ARXY_ROOT"
-    if grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null; then
+    if mesa_hold_active; then
         echo "hold mesa-mini: activo"
     else
         echo "hold mesa-mini: ausente"
@@ -2540,9 +2564,6 @@ probe_overlayfs() ( # subshell: 1 si overlay rootless monta en userns, sin resto
     t="" # el EXIT trap queda idempotente
     return 0
 )
-probe_mount_setattr() { kver_at_least 5 12 && echo 1 || echo 0; } # existe desde 5.12
-probe_seccomp() { kver_at_least 3 17 && echo 1 || echo 0; } # seccomp-bpf desde 3.17
-probe_landlock() { kver_at_least 5 13 && echo 1 || echo 0; } # landlock desde 5.13
 probe_cgroupv2() {
     command -v stat >/dev/null 2>&1 || { echo 0; return 0; }
     [[ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null || true)" == cgroup2fs ]] && echo 1 || echo 0
@@ -2599,10 +2620,12 @@ emit_hardware_json() {
     fi
     local -a fixes=()
     local -A fix=()
-    local fid
+    local fid fixes_body="" _first=1
     for fid in "${FIX_IDS[@]}"; do
         fix_probe "$fid" fix
         [[ "${fix[status]}" == todo ]] && fixes+=("$fid")
+        if [[ "$_first" == 1 ]]; then _first=0; else fixes_body+=', '; fi
+        fixes_body+="$(_fix_json_entry "$fid" fix)"
     done
     local rver=""
     [[ -f "$ARXY_VERSION_FILE" ]] && rver="$(version_field date || true)"
@@ -2617,13 +2640,13 @@ emit_hardware_json() {
     printf ', "kernel": {"arch": %s, "release": %s}' "$(json_str_or_null "$karch")" "$(json_str_or_null "$krel")"
     printf ', "userns": %s' "$(json_bool "$(probe_userns)")"
     printf ', "overlayfs_rootless": %s' "$(json_bool "$(probe_overlayfs)")"
-    printf ', "mount_setattr": %s' "$(json_bool "$(probe_mount_setattr)")"
-    printf ', "seccomp": %s' "$(json_bool "$(probe_seccomp)")"
+    printf ', "mount_setattr": %s' "$(json_bool "$(kver_at_least 5 12 && echo 1 || echo 0)")"
+    printf ', "seccomp": %s' "$(json_bool "$(kver_at_least 3 17 && echo 1 || echo 0)")"
     printf ', "mount_setattr_method": "kernel-version>=5.12"'
     printf ', "seccomp_method": "kernel-version>=3.17"'
     printf ', "cgroupv2": %s' "$(json_bool "$(probe_cgroupv2)")"
     printf ', "cgroupv2_method": "cgroup2fs-en-/sys/fs/cgroup"'
-    printf ', "landlock": {"available": %s, "abi": null}' "$(json_bool "$(probe_landlock)")"
+    printf ', "landlock": {"available": %s, "abi": null}' "$(json_bool "$(kver_at_least 5 13 && echo 1 || echo 0)")"
     printf ', "gpu": {"vendor": "%s", "driver": null, "render_node": %s}' "$gv" "$(json_str_or_null "$rn")"
     printf ', "nvidia": {"present": %s, "version": %s, "usable": %s, "reason": %s}' \
         "$(json_bool "$nv_present")" "$(json_str_or_null "$nv")" "$(json_bool "$nv_usable")" "$(json_str "$nv_reason")"
@@ -2634,7 +2657,7 @@ emit_hardware_json() {
     printf ', "rootfs": {"path": %s, "present": %s, "version": %s}' \
         "$(json_str "$ARXY_ROOT")" "$(json_bool "$root_present")" "$(json_str_or_null "$rver")"
     printf ', "fixes_available": %s' "$(printf '%s\n' "${fixes[@]}" | sort | json_arr)"
-    printf ', "fixes": %s' "$(fixes_json)"
+    printf ', "fixes": [%s]' "$fixes_body"
     printf ', "fixes_applied": []'
     local sig_pol="${ARXY_SIGNATURE_POLICY:-optional}" sig_avail=0 sig_last=0
     command -v minisign >/dev/null 2>&1 && sig_avail=1
@@ -2658,7 +2681,7 @@ write_hardware_json() { # <json> : atómico + solo-si-cambia; nunca falla setup
     [[ -n "$tmp" ]] || { msg "aviso: sin temporal para hardware.json" >&2; return 0; }
     printf '%s\n' "$json" >"$tmp" 2>/dev/null || { rm -f "$tmp"; msg "aviso: no pude escribir hardware.json" >&2; return 0; }
     chmod 0644 "$tmp" 2>/dev/null || true
-    sync "$tmp" 2>/dev/null || sync 2>/dev/null || true # durabilidad best-effort
+    data_sync "$tmp" # durabilidad best-effort
     mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp"; msg "aviso: no pude publicar hardware.json" >&2; return 0; }
     return 0
 }
@@ -2728,7 +2751,7 @@ Dia a dia:
   install|i <pkg...>   instalar paquetes de Arch (+ crea lanzadores .desktop)
   install gpu-amd|gpu-nvidia  stack GL completo para esas GPUs (+~170MB)
   install arxy-gaming[-amd|-intel|-nvidia] [--dry-run]  stack gaming (auto u override)
-  install --aur <pkg>  instalar de AUR (precompilados -bin, motor paru)
+  install --aur <pkg>  instalar de AUR (precompilados -bin, paru o git+RPC)
   remove|rm <pkg...>   desinstalar (+ borra sus lanzadores)
   update|up            actualizar todo el subsistema (pacman -Syu)
   run|r <bin|ruta> [...] ejecutar programa del subsistema o binario suelto
