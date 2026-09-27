@@ -118,6 +118,11 @@ ARXY_ARGV=("$@")
 # --- usuario real (los .desktop van a SU home aunque se use sudo/doas)
 if [[ "$(id -u)" -eq 0 ]]; then
     REAL_USER="${SUDO_USER:-${DOAS_USER:-${USER:-$(id -un)}}}"
+    # pkexec no pone SUDO_USER/DOAS_USER: el invocador viene en PKEXEC_UID
+    # (sin esto los .desktop de una sesion GUI caerian en /root).
+    if [[ -z "${SUDO_USER:-}${DOAS_USER:-}" && -n "${PKEXEC_UID:-}" ]]; then
+        REAL_USER="$(id -nu "$PKEXEC_UID" 2>/dev/null || echo "$REAL_USER")"
+    fi
 else
     REAL_USER="${USER:-$(id -un)}"
 fi
@@ -178,19 +183,28 @@ arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
     done
 }
 
-# Construye una sola frontera de privilegios para sudo y doas. El modo exec
-# reemplaza el proceso; run devuelve el estado del comando al llamador.
+# Construye una sola frontera de privilegios para sudo, doas y pkexec.
+# Sin tty (GUI/.desktop: stdin es /dev/null) sudo/doas no pueden pedir
+# contraseña; pkexec usa el dialogo del agente polkit (accion
+# org.freedesktop.policykit.exec, sin .policy propio). Si sudo es
+# passwordless (cron/NOPASSWD) se conserva aunque no haya tty: el probe
+# -n nunca pregunta. En terminal no cambia nada. El modo exec reemplaza
+# el proceso; run devuelve el estado del comando al llamador.
 _root_run() { # <run|exec> <cmd...>
     local mode="$1"; shift
     local -a pass=()
     mapfile -t pass < <(arxy_env_pass)
     local -a elevate
-    if command -v sudo >/dev/null 2>&1; then
+    if [[ ! -t 0 ]] && ! { command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; } \
+        && command -v pkexec >/dev/null 2>&1; then
+        # pkexec sanea el entorno: env por argv conserva los ARXY_*.
+        elevate=(pkexec "$(command -v env)" "${pass[@]}")
+    elif command -v sudo >/dev/null 2>&1; then
         elevate=(sudo "${pass[@]}" --)
     elif command -v doas >/dev/null 2>&1; then
         elevate=(doas env "${pass[@]}")
     else
-        die "este comando necesita root y no hay sudo/doas"
+        die "este comando necesita root y no hay sudo/doas/pkexec"
     fi
     [[ "$mode" == exec ]] && exec "${elevate[@]}" "$@"
     "${elevate[@]}" "$@"
