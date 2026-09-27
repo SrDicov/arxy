@@ -25,26 +25,41 @@ mkcpu() { # <fich> <vendor> <flags...> : cpuinfo falso de 2 CPUs gemelas
 V3F="fpu avx avx2 bmi1 bmi2 fma lzcnt movbe osxsave"
 V4F="$V3F avx512f avx512bw avx512cd avx512dq avx512vl"
 
+mkldso() { # <fich> : falso ld-linux (caps en <fich>.caps)
+    printf '#!/bin/sh\ncat "%s.caps"\n' "$1" > "$1"; chmod +x "$1"; : > "$1.caps"
+}
+mkldso "$D/ld-v3"
+printf '  x86-64-v2 (supported, searched)\n  x86-64-v3 (supported, searched)\n' > "$D/ld-v3.caps"
+mkldso "$D/ld-v4"
+printf '  x86-64-v2 (supported, searched)\n  x86-64-v3 (supported, searched)\n  x86-64-v4 (supported, searched)\n' > "$D/ld-v4.caps"
+NOLDSO="$D/no-existe-ldso" # sin ld-linux: fallback a flags (musl)
+
 echo "== A: cpu_tier =="
 # shellcheck disable=SC2086 # flags a proposito como palabras
 mkcpu "$D/v3" GenuineIntel $V3F
-t "v3 intel" "^v3$" -- cpu_tier "$D/v3" x86_64
+t "v3 intel" "^v3$" -- cpu_tier "$D/v3" x86_64 "$D/ld-v3"
+# VM con CPUID enmascarado (sin lzcnt/osxsave) pero v3 real segun glibc:
+# el ldso manda, las flags no vetan (caso Kaby Lake virtualizado).
+mkcpu "$D/masked" GenuineIntel fpu avx avx2 bmi1 bmi2 fma movbe
+t "v3 enmascarado + ldso" "^v3$" -- cpu_tier "$D/masked" x86_64 "$D/ld-v3"
+te "v3 enmascarado sin ldso" 1 -- cpu_tier "$D/masked" x86_64 "$NOLDSO"
+t "v3 estricto sin ldso (musl)" "^v3$" -- cpu_tier "$D/v3" x86_64 "$NOLDSO"
 # shellcheck disable=SC2086
 mkcpu "$D/v4" GenuineIntel $V4F
-t "v4 xeon homogeneo" "^v4$" -- cpu_tier "$D/v4" x86_64
+t "v4 xeon homogeneo" "^v4$" -- cpu_tier "$D/v4" x86_64 "$D/ld-v4"
 # shellcheck disable=SC2086
 mkcpu "$D/zn" AuthenticAMD $V4F avx512vbmi
-t "znver4 amd+vbmi" "^znver4$" -- cpu_tier "$D/zn" x86_64
+t "znver4 amd+vbmi" "^znver4$" -- cpu_tier "$D/zn" x86_64 "$D/ld-v4"
 # shellcheck disable=SC2086
 mkcpu "$D/vbmi-intel" GenuineIntel $V4F avx512vbmi
-t "intel+vbmi es v4, no znver4" "^v4$" -- cpu_tier "$D/vbmi-intel" x86_64
+t "intel+vbmi es v4, no znver4" "^v4$" -- cpu_tier "$D/vbmi-intel" x86_64 "$D/ld-v4"
 { printf 'processor\t: 0\nvendor_id\t: GenuineIntel\nmodel\t\t: 151\nflags\t\t: %s\n\n' "$V4F"
   printf 'processor\t: 1\nvendor_id\t: GenuineIntel\nmodel\t\t: 190\nflags\t\t: %s\n\n' "$V4F"; } > "$D/hybrid"
-t "hibrido heterogeneo topa v3" "^v3$" -- cpu_tier "$D/hybrid" x86_64
+t "hibrido heterogeneo topa v3" "^v3$" -- cpu_tier "$D/hybrid" x86_64 "$D/ld-v4"
 mkcpu "$D/v1" GenuineIntel fpu sse2
-te "v1 vacio" 1 -- cpu_tier "$D/v1" x86_64
-te "aarch64 vacio" 1 -- cpu_tier "$D/v3" aarch64
-te "ausente vacio" 1 -- cpu_tier "$D/no-existe" x86_64
+te "v1 vacio" 1 -- cpu_tier "$D/v1" x86_64 "$NOLDSO"
+te "aarch64 vacio" 1 -- cpu_tier "$D/v3" aarch64 "$D/ld-v3"
+te "ausente vacio" 1 -- cpu_tier "$D/no-existe" x86_64 "$D/ld-v3"
 
 echo "== B: cachy_activate =="
 R="$ARXY_ROOT"

@@ -11,8 +11,9 @@ Soporte GUI headless (neko wizard) + repos CachyOS por microarquitectura.
   (cron/NOPASSWD) se conserva sudo; en terminal nada cambia. `REAL_USER`
   resuelve `PKEXEC_UID` (los `.desktop` ya no caen en `/root`).
 - `arxy setup` activa repos CachyOS según el host (`cpu_tier`:
-  v3|v4|znver4 por flags de `/proc/cpuinfo`; híbridos Intel topan v3,
-  znver4 solo AMD con VBMI), solo si la imagen trae el marker, y migra
+  v3|v4|znver4; oráculo `ld-linux` del host como la wiki CachyOS, flags
+  solo fallback sin ldso/musl; híbridos Intel topan v3, znver4 solo AMD
+  con VBMI), solo si la imagen trae el marker, y migra
   (wiki CachyOS: `-Syy`, `-Syu`, reinstalar explícitos). Sin marker o
   sin v3: repos base, como antes. `version --verbose` muestra el tier.
 

@@ -57,8 +57,9 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 - Mocks de detección (tests sin root ni imagen): `ARXY_SYS_ROOT` (prefijo
   /proc+/sys), `ARXY_DEV_PATH`, `ARXY_LIB_DIR`/`ARXY_LIB64_DIR`, `ARXY_SYS_DRM_PATH`.
   Tests de rama glibc/musl deben mockear `detect_libc` y cubrir AMBOS casos.
-  `cpu_tier` no usa env nuevo: args opcionales `[cpuinfo] [arch]`
-  (default: `${ARXY_SYS_ROOT:-}/proc/cpuinfo` + `uname -m`).
+  `cpu_tier` no usa env nuevo: args opcionales `[cpuinfo] [arch] [ldso]`
+  (defaults: `${ARXY_SYS_ROOT:-}/proc/cpuinfo` + `uname -m` + primer
+  ld-linux ejecutable del host; sin ldso —musl— fallback a flags).
 - Tests con `sh -c` + funciones de lib/: `export -f` funciones y vars, o
   llamadas directas. Kills deterministas: overrides de función que matan TRAS
   la fase + `kill -9 $BASHPID` (`$$` mataría al test, no al subshell).
