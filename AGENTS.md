@@ -22,14 +22,12 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
   (+ `make sync`) → `version` en `packaging/void/arxy/template` →
   `version`+`checksum` en `z-packages` (vía API, tras release). Nunca derivar
   del tag (rompe `make sync` offline).
-- Gate (lo verifica `lint.yml`; shellcheck corre sobre el generado, no sobre
-  fragmentos sueltos que dan falsos SC2034/SC2148):
-
-```bash
-make src/arxy && git diff --exit-code src/arxy   # D9: byte-idéntico
-bash -n lib/*.sh src/arxy install.sh && shellcheck -S warning src/arxy install.sh
-cmp src/arxy packaging/void/arxy/files/arxy && cmp config/arxy.conf packaging/void/arxy/files/arxy.conf && cmp config/arxy.pub packaging/void/arxy/files/arxy.pub
-```
+- Gate antes de commit: `make verify` (= `lint` + `test` + diff byte-idéntico de
+  `src/arxy` + `cmp` contra `packaging/void/…/files/`). Ojo con el alcance de
+  CI: `lint.yml` solo corre la parte de shell (regen, `bash -n`, shellcheck,
+  cmp) y `test-signature.sh` con minisign real; **el resto de la suite no
+  está en CI**, no des por hecho que un push la ejecutó. shellcheck siempre
+  sobre el generado, nunca sobre fragmentos sueltos (falsos SC2034/SC2148).
 
 - Un commit por tarea, mensaje con el porqué.
 - Push, releases y GitHub (incl. z-repo): solo con pedido explícito.
@@ -43,8 +41,12 @@ cmp src/arxy packaging/void/arxy/files/arxy && cmp config/arxy.conf packaging/vo
 - Cada test es `bash tests/test-*.sh` autocontenido. `tests/run.sh` los
   orquesta en secuencia: `make test` para la suite determinista y
   `make test-all` para los que necesitan entorno externo. Helpers en
-  `tests/lib.sh`. `ARXY_BIN` default: `src/arxy` del repo (nunca el instalado:
-  da falsos rojos). Tests que usan `$BIN`/`src/arxy`, siempre DESPUÉS de sync.
+  `tests/lib.sh`: `t` (assert de contenido), `te` (rc exacto), `ok`/`no`,
+  `finish`, `arxy_mkroot_ver`, `fake_drm`, `staging_clean` — reúsalos, no
+  reescribas mini-asserts. `ARXY_BIN` default: `src/arxy` del repo (nunca el
+  instalado: da falsos rojos). Tests que usan `$BIN`/`src/arxy`, siempre
+  DESPUÉS de sync. Ojo: `bridge/test-bridge.sh` vive fuera de `tests/`, así
+  que `make test` NUNCA lo corre → `make bridge && bash bridge/test-bridge.sh`.
 - Assertions de **contenido** (`grep`), nunca solo rc (hubo bugs mudos con rc=0).
 - Suites **en secuencia, nunca en paralelo** (los de daemon/bridge flaquean por
   contención). `tests/test-hardware.sh` solo en host real con Intel, nunca en
