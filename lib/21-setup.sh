@@ -63,8 +63,8 @@ cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> rein
     # Respeta el hold de la mini (IgnorePkg=mesa): reinstalarlo desde el
     # tier traeria el paquete full y pregunta en headless (muerte sin
     # tty). gpu-* lo levanta a pedido (ver cmd_install).
-    local hold=" $(sed -n 's/^IgnorePkg[[:space:]]*=[[:space:]]*//p' "$ARXY_ROOT/etc/pacman.conf" | tr '\n' ' ') "
-    local p
+    local hold p
+    hold=" $(sed -n 's/^IgnorePkg[[:space:]]*=[[:space:]]*//p' "$ARXY_ROOT/etc/pacman.conf" | tr '\n' ' ') "
     for p in ${re[@]+"${re[@]}"}; do [[ "$hold" == *" $p "* ]] || mig+=("$p"); done
     if ((${#mig[@]})); then
         pacman_mut -S "${nc[@]}" "${mig[@]}" || die "fallo la migracion a CachyOS $tier en $ARXY_ROOT (mira el error de arriba)"
