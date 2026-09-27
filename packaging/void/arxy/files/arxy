@@ -2248,26 +2248,50 @@ detect_dev_nodes() { # una ruta por línea: dri/* nvidia* fuse ntsync ("" = nada
     return 0
 }
 
-# shellcheck disable=SC2120 # args opcionales: solo los tests inyectan cpuinfo/arch
-cpu_tier() { # [cpuinfo] [arch] : v3|v4|znver4 (vacio + rc 1 si <v3 o no x86_64)
+# shellcheck disable=SC2120 # args opcionales: solo los tests inyectan cpuinfo/arch/ldso
+cpu_tier() { # [cpuinfo] [arch] [ldso] : v3|v4|znver4 (vacio + rc 1 si <v3 o no x86_64)
     local arch="${2:-$(uname -m 2>/dev/null || true)}"
     [[ "$arch" == x86_64 ]] || return 1
     local cpuinfo="${1:-${ARXY_SYS_ROOT:-}/proc/cpuinfo}" line
     line="$(grep -m1 '^flags[[:space:]]*:' "$cpuinfo" 2>/dev/null || true)"
     [[ -n "$line" ]] || return 1
-    local fl=" ${line#*:} " f
-    for f in avx avx2 bmi1 bmi2 fma lzcnt movbe osxsave; do
-        [[ "$fl" == *" $f "* ]] || return 1
-    done
+    local fl=" ${line#*:} "
+    # Nivel base: el ld-linux del host manda (lee CPUID directo, canonico
+    # glibc como la wiki CachyOS). Las flags van enmascaradas en VMs y no
+    # vetan. Sin ld-linux (musl) caemos a flags estrictas (conservador).
+    local ldso="${3:-}" _lp
+    if [[ -z "$ldso" ]]; then
+        for _lp in /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-x86-64.so.2 /usr/lib/ld-linux-x86-64.so.2; do
+            if [[ -x "$_lp" ]]; then ldso="$_lp"; break; fi
+        done
+    fi
+    local v3="" v4=""
+    if [[ -n "$ldso" && -x "$ldso" ]]; then
+        local hw
+        hw="$("$ldso" --help 2>/dev/null || true)"
+        [[ "$hw" == *"x86-64-v3 (supported"* ]] && v3=1
+        [[ "$hw" == *"x86-64-v4 (supported"* ]] && v4=1
+    else
+        local f ok=1
+        for f in avx avx2 bmi1 bmi2 fma lzcnt movbe osxsave; do
+            [[ "$fl" == *" $f "* ]] || { ok=""; break; }
+        done
+        [[ -n "$ok" ]] || return 1
+        v3=1
+        ok=1
+        for f in avx512f avx512bw avx512cd avx512dq avx512vl; do
+            [[ "$fl" == *" $f "* ]] || { ok=""; break; }
+        done
+        [[ -n "$ok" ]] && v4=1
+    fi
+    [[ -n "$v3" ]] || return 1
     # Hibridos Intel (Alder Lake+): reportan v4 pero sin AVX512 usable
     # (wiki CachyOS); modelos heterogeneos => tope v3.
     # ponytail: heterogeneidad como proxy de hibrido; tabla de modelos si da falsos.
     local nmodels
     nmodels="$(grep '^model[[:space:]]*:' "$cpuinfo" 2>/dev/null | sort -u | grep -c . || true)"
     if [[ "${nmodels:-1}" -gt 1 ]]; then echo v3; return 0; fi
-    for f in avx512f avx512bw avx512cd avx512dq avx512vl; do
-        [[ "$fl" == *" $f "* ]] || { echo v3; return 0; }
-    done
+    if [[ -z "$v4" ]]; then echo v3; return 0; fi
     local vendor
     vendor="$(grep -m1 '^vendor_id' "$cpuinfo" 2>/dev/null || true)"
     # ponytail: znver4 ~= VBMI en AMD (sin gcc para -march=native en imagen ni host).
