@@ -184,18 +184,20 @@ arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
 }
 
 # Construye una sola frontera de privilegios para sudo, doas y pkexec.
-# Sin tty (GUI/.desktop: stdin es /dev/null) sudo/doas no pueden pedir
-# contraseña; pkexec usa el dialogo del agente polkit (accion
-# org.freedesktop.policykit.exec, sin .policy propio). Si sudo es
-# passwordless (cron/NOPASSWD) se conserva aunque no haya tty: el probe
-# -n nunca pregunta. En terminal no cambia nada. El modo exec reemplaza
-# el proceso; run devuelve el estado del comando al llamador.
+# Sin tty (GUI/.desktop/SSH: stdin es /dev/null o pipe) un elevador con
+# password no puede pedirla; pkexec usa el dialogo del agente polkit
+# (accion org.freedesktop.policykit.exec, sin .policy propio). Si hay
+# elevador passwordless (cron/NOPASSWD/doas-nopass) se conserva aunque no
+# haya tty: los probes -n nunca preguntan. En terminal no cambia nada.
+# El modo exec reemplaza el proceso; run devuelve el estado al llamador.
 _root_run() { # <run|exec> <cmd...>
     local mode="$1"; shift
     local -a pass=()
     mapfile -t pass < <(arxy_env_pass)
     local -a elevate
-    if [[ ! -t 0 ]] && ! { command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; } \
+    if [[ ! -t 0 ]] \
+        && ! { command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; } \
+        && ! { command -v doas >/dev/null 2>&1 && doas -n true 2>/dev/null; } \
         && command -v pkexec >/dev/null 2>&1; then
         # pkexec sanea el entorno: env por argv conserva los ARXY_*.
         elevate=(pkexec "$(command -v env)" "${pass[@]}")
@@ -694,12 +696,12 @@ enforce_signature_policy() { # <rc> : aplica ARXY_SIGNATURE_POLICY (die, warn o 
     local rc="${1:-1}" pol="${ARXY_SIGNATURE_POLICY:-optional}"
     case "$pol" in
         required)
-            [[ "$rc" == 0 ]] || die "firma minisign no valida (rc=$rc, policy=required)" ;;
+            [[ "$rc" == 0 ]] || die "firma minisign no valida o no verificable (rc=$rc, policy=required)" ;;
         optional)
             case "$rc" in
                 0) : ;;
                 2) msg "aviso: sin minisign en el host, omitiendo verificacion de firma" >&2 ;;
-                *) die "firma minisign no valida (rc=$rc, policy=optional)" ;;
+                *) die "firma minisign no valida o no verificable (rc=$rc, policy=optional)" ;;
             esac ;;
         off) : ;;
         *) die "ARXY_SIGNATURE_POLICY invalida: '$pol' (required|optional|off)" ;;
