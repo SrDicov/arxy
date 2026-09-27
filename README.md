@@ -41,14 +41,14 @@ To try a local image or your own build: `ARXY_IMAGE_URL=file:///ruta/al.tar.zst`
 
 | Command | What it does |
 | --- | --- |
-| `arxy install <pkg...>` / `--aur` | Installs packages (official or AUR `-bin`) and creates menu shortcuts. Asks for `sudo` under the hood. AUR ones build as your unprivileged user, then ask for the password to install. Downloads the base image if missing. Launchers go to `~/.local/share/applications/`. |
+| `arxy install <pkg...>` / `--aur` | Installs packages (official or AUR `-bin`) and creates menu shortcuts. Asks for elevation under the hood (`sudo`/`doas`, or a polkit dialog when there's no terminal). AUR ones build as your unprivileged user, then elevate only to install. Downloads the base image if missing. Launchers go to `~/.local/share/applications/`. |
 | `arxy remove <pkg...>` | Removes the package and its menu launcher. |
 | `arxy run <bin> [args]` | Runs any binary or command inside the subsystem. |
 | `arxy which <bin>` | Tells you whether the executable resolves from the [subsystem] or the [host]. |
 | `arxy shell` | Opens a native Arch interactive shell. |
 | `arxy search/info/list/update` | Searches packages, shows details, lists installed, or updates the whole subsystem. |
 | `arxy export --all` | Forces regeneration of all app menu launchers. |
-| `arxy setup / doctor` | (Re)downloads the image atomically with rollback / checks environment health. |
+| `arxy setup / doctor` | (Re)downloads the image atomically with rollback (activating CachyOS repos matching your CPU when the image supports them) / checks environment health. |
 | `arxy quickstart` | Inspects your install state and suggests what to do next. |
 | `arxy dedup` | Hardlinks identical files under `/usr`. Runs automatically after `install`/`update` when savings exceed 10 MB (disable with `ARXY_NO_AUTO_DEDUP=1`). |
 | `axy` | Short alias so you don't type `arxy` all day. |
@@ -72,7 +72,7 @@ arxy doctor --json | jq '{nivel: .level, libc: .libc.kind, gpu: .gpu.vendor}'
 
 ## Architecture: the 2 execution levels
 
-Starting the subsystem costs next to nothing. The image is just an Arch rootfs extracted flat into `/var/lib/arxy/root` (no squashfs or FUSE layers slowing down I/O; plain files). We share `/home`, `/tmp`, `/run`, `/dev` and direct GPU access. Your real system shows up at `/host`. That's the whole trick behind native speed. Reads and software execution run as your unprivileged user; we only escalate to `sudo` to install or update.
+Starting the subsystem costs next to nothing. The image is just an Arch rootfs extracted flat into `/var/lib/arxy/root` (no squashfs or FUSE layers slowing down I/O; plain files). We share `/home`, `/tmp`, `/run`, `/dev` and direct GPU access. Your real system shows up at `/host`. That's the whole trick behind native speed. Reads and software execution run as your unprivileged user; we only escalate (`sudo`/`doas`, or `pkexec` when headless) to install or update.
 
 * **Level 1** (bwrap + user namespaces): default and recommended.
 * **Level 2** (no namespaces): `run` injects the subsystem's `ld-linux`, `install` uses classic chroot with sudo. For hardened kernels or container environments where `bwrap` is neutered. The level is auto-detected (see `arxy doctor`), or force it with `ARXY_LEVEL=1|2`.

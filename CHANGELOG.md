@@ -17,6 +17,20 @@ Soporte GUI headless (neko wizard) + repos CachyOS por microarquitectura.
   (wiki CachyOS: `-Syy`, `-Syu`, reinstalar explícitos). Sin marker o
   sin v3: repos base, como antes. `version --verbose` muestra el tier.
 
+### Corregido
+
+- `cpu_tier` usa el `ld-linux` del host como oráculo (CPUs con flags
+  enmascaradas en VM negaban v3 que glibc sí soporta); flags solo como
+  fallback musl. CPUs enmascaradas/desconocidas resuelven a repos base.
+- `doas -n` también hace fast-path: máquinas doas-nopass sin agente
+  polkit quedaban ensombrecidas por `pkexec`.
+- host-bridge rechaza `--allowed-cmd` vacío (rojo desde la
+  modularización).
+- T0 de gc tolera dir build recién creado con `du` busybox (pinea
+  `applied_bytes`, no tamaño exacto).
+- Mensaje rc=3/4 dice "no verificable" (antes "no válida": sin trust
+  root instalado nada era inválido, solo inverificable).
+
 ## [0.6.1] - 2026-09-24
 
 Endurecimiento + dieta: sin cambios de UX salvo avisos más claros.
