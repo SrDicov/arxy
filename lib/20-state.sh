@@ -170,12 +170,12 @@ enforce_signature_policy() { # <rc> : aplica ARXY_SIGNATURE_POLICY (die, warn o 
     local rc="${1:-1}" pol="${ARXY_SIGNATURE_POLICY:-optional}"
     case "$pol" in
         required)
-            [[ "$rc" == 0 ]] || die "firma minisign no valida (rc=$rc, policy=required)" ;;
+            [[ "$rc" == 0 ]] || die "firma minisign no valida o no verificable (rc=$rc, policy=required)" ;;
         optional)
             case "$rc" in
                 0) : ;;
                 2) msg "aviso: sin minisign en el host, omitiendo verificacion de firma" >&2 ;;
-                *) die "firma minisign no valida (rc=$rc, policy=optional)" ;;
+                *) die "firma minisign no valida o no verificable (rc=$rc, policy=optional)" ;;
             esac ;;
         off) : ;;
         *) die "ARXY_SIGNATURE_POLICY invalida: '$pol' (required|optional|off)" ;;
