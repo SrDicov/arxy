@@ -127,7 +127,7 @@ cmd_host_bridge() { # [--daemon|--stop|--status] [--socket P] [--allowed-cmd B..
                 [[ $# -ge 2 ]] || die "uso: $PROG $usage"
                 sock="$2"; shift 2 ;;
             --allowed-cmd)
-                [[ $# -ge 2 ]] || die "uso: $PROG $usage"
+                [[ $# -ge 2 && -n "${2:-}" ]] || die "falta binario de --allowed-cmd (uso: $PROG $usage)"
                 allow+=("$2"); shift 2 ;;
             -h|--help) echo "uso: $PROG $usage"; return 0 ;;
             *) die "uso: $PROG $usage" ;;
