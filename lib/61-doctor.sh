@@ -320,5 +320,10 @@ cmd_version() {
     else
         echo "hold mesa-mini: ausente"
     fi
+    if _ct="$(cachy_active_tier 2>/dev/null)"; then
+        echo "repos: CachyOS tier $_ct"
+    else
+        echo "repos: base (Arch)"
+    fi
     show_hardware_profile
 }

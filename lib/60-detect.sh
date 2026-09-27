@@ -75,3 +75,30 @@ detect_dev_nodes() { # una ruta por línea: dri/* nvidia* fuse ntsync ("" = nada
     done
     return 0
 }
+
+# shellcheck disable=SC2120 # args opcionales: solo los tests inyectan cpuinfo/arch
+cpu_tier() { # [cpuinfo] [arch] : v3|v4|znver4 (vacio + rc 1 si <v3 o no x86_64)
+    local arch="${2:-$(uname -m 2>/dev/null || true)}"
+    [[ "$arch" == x86_64 ]] || return 1
+    local cpuinfo="${1:-${ARXY_SYS_ROOT:-}/proc/cpuinfo}" line
+    line="$(grep -m1 '^flags[[:space:]]*:' "$cpuinfo" 2>/dev/null || true)"
+    [[ -n "$line" ]] || return 1
+    local fl=" ${line#*:} " f
+    for f in avx avx2 bmi1 bmi2 fma lzcnt movbe osxsave; do
+        [[ "$fl" == *" $f "* ]] || return 1
+    done
+    # Hibridos Intel (Alder Lake+): reportan v4 pero sin AVX512 usable
+    # (wiki CachyOS); modelos heterogeneos => tope v3.
+    # ponytail: heterogeneidad como proxy de hibrido; tabla de modelos si da falsos.
+    local nmodels
+    nmodels="$(grep '^model[[:space:]]*:' "$cpuinfo" 2>/dev/null | sort -u | grep -c . || true)"
+    if [[ "${nmodels:-1}" -gt 1 ]]; then echo v3; return 0; fi
+    for f in avx512f avx512bw avx512cd avx512dq avx512vl; do
+        [[ "$fl" == *" $f "* ]] || { echo v3; return 0; }
+    done
+    local vendor
+    vendor="$(grep -m1 '^vendor_id' "$cpuinfo" 2>/dev/null || true)"
+    # ponytail: znver4 ~= VBMI en AMD (sin gcc para -march=native en imagen ni host).
+    if [[ "$vendor" == *AuthenticAMD* && "$fl" == *" avx512vbmi "* ]]; then echo znver4; return 0; fi
+    echo v4
+}
