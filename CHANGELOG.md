@@ -1,5 +1,18 @@
 # Changelog de arxy
 
+## [0.6.3] - 2026-09-27
+
+Migración CachyOS funcional con la imagen con marker (el 0.6.2 la
+activaba pero el `-Syu` moría).
+
+### Corregido
+
+- El `-Syu` corría con el pacman stock, que rechaza `x86_64_v3` como
+  arquitectura inválida (fallo visto en setup real contra el release
+  con marker). Ahora la migración instala primero `cachyos/pacman`
+  (parcheado, pin de repo) tras el `-Syy`, y `cachy_activate` fija
+  `Architecture = auto` (la imagen puede traerlo pineado).
+
 ## [0.6.2] - 2026-09-27
 
 Soporte GUI headless (neko wizard) + repos CachyOS por microarquitectura.

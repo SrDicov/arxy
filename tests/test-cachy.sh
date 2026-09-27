@@ -114,6 +114,25 @@ cachy_activate znver4 2>/dev/null && ok "znver4 rc 0" || no "znver4 rc 0"
 grep -q '^\[cachyos-znver4\]$' "$R/etc/pacman.conf" && ok "znver4 activo" || no "znver4 activo"
 g="$(cachy_active_tier 2>/dev/null || true)"; [[ "$g" == znver4 ]] && ok "tier activo znver4" || no "tier activo znver4" "$g"
 
+echo "== D: migracion instala pacman [cachyos] antes del -Syu =="
+printf '[options]\nArchitecture = x86_64\n#[cachyos-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos-core-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos-extra-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos]\n#Include = /etc/pacman.d/cachyos-mirrorlist\n[core]\nInclude = /etc/pacman.d/mirrorlist\n' > "$R/etc/pacman.conf"
+: > "$R/etc/pacman.d/cachyos-mirrorlist"
+pacman_mut() { printf '%s\n' "$*" >>"$D/calls"; }
+run_pacman() { [[ "${1:-}" == -Qqn ]] && printf 'pkg1\npkg2\n'; return 0; }
+nc_args() { local -n _nc=$1; _nc=(--noconfirm); }
+msg() { :; }
+die() { echo "DIE $*" >&2; return 1; }
+clean_pkg_cache() { :; }
+rm -f "$D/calls"
+cachy_migrate v3 2>/dev/null && ok "migrate v3 rc 0" || no "migrate v3 rc 0"
+grep -q '^Architecture = auto$' "$R/etc/pacman.conf" && ok "Architecture pineado -> auto" || no "Architecture auto"
+grep -q '^\[cachyos-v3\]$' "$R/etc/pacman.conf" && ok "migrate activa v3" || no "migrate activa v3"
+printf '%s\n' "-Syy" "-S --noconfirm cachyos/pacman" "-Syu --noconfirm" "-S --noconfirm pkg1 pkg2" > "$D/want"
+cmp "$D/calls" "$D/want" 2>/dev/null && ok "orden: Syy -> pacman -> Syu -> reinstalar" || no "orden migracion" "$(tr '\n' '|' <"$D/calls" 2>/dev/null)"
+printf '[options]\n[core]\nInclude = /etc/pacman.d/mirrorlist\n#[cachyos]\n#Include = /etc/pacman.d/cachyos-mirrorlist\n' > "$R/etc/pacman.conf"
+cachy_activate v3 2>/dev/null
+grep -q '^Architecture = auto$' "$R/etc/pacman.conf" && ok "Architecture ausente -> auto" || no "Architecture append"
+
 echo "== C: sin marker no se toca =="
 rm -f "$R/etc/pacman.d/cachyos-mirrorlist"
 cachy_usable 2>/dev/null && no "usable sin mirrorlist" || ok "usable sin mirrorlist"
