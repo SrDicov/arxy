@@ -73,8 +73,9 @@ fi
 
 echo "== D: headless + pkexec (GUI/.desktop) =="
 pkexec() { printf '%s\n' "$@" > "$REC"; return 0; }
-# sudo con password: el probe -n falla y manda a pkexec.
+# sudo y doas con password: los probes -n fallan y manda pkexec.
 sudo() { [[ "${1:-}" == "-n" ]] && return 1; printf '%s\n' "$@" > "$REC"; return 0; }
+doas() { [[ "${1:-}" == "-n" ]] && return 1; printf '%s\n' "$@" > "$REC"; return 0; }
 ENV_BIN="$(command -v env)"
 as_root true anything </dev/null
 _first="$(head -n 1 "$REC")"; _last="$(tail -n 2 "$REC" | tr '\n' ' ')"
@@ -87,6 +88,14 @@ sudo() { printf '%s\n' "$@" > "$REC"; return 0; }
 as_root true anything </dev/null
 _first="$(head -n 1 "$REC")"
 [[ "$_first" == ARXY_* ]] && [[ "$_first" != "$ENV_BIN" ]] && ok "E sudo sin password gana" || no "E sudo gana" "$_first"
-unset -f pkexec sudo
+
+echo "== F: doas passwordless manda sobre pkexec sin tty (Neko) =="
+unset -f sudo # sin sudo: el probe cae a doas (PATH oculta el sudo real)
+doas() { printf '%s\n' "$@" > "$REC"; return 0; }
+( PATH="$D/empty" as_root true anything </dev/null )
+_first="$(head -n 1 "$REC")"
+[[ "$_first" == "env" ]] && ok "F doas sin password gana" || no "F doas gana" "$_first"
+grep -q "^ARXY_ROOT=/tmp/fake-root-no-existe$" "$REC" && ok "F doas propaga ROOT" || no "F doas propaga ROOT"
+unset -f pkexec sudo doas
 
 finish
