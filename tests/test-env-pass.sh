@@ -14,11 +14,15 @@ HERE="$(dirname "$0")"
 D="$(mktemp -d)"
 trap 'rm -rf "$D"' EXIT
 REC="$D/rec"
+# PATH minimo para esconder elevadores reales (pkexec/sudo/doas) en
+# subshells: las ramas se prueban con stubs, hermetico con o sin tty.
+mkdir -p "$D/empty"
+ln -s "$(command -v grep)" "$D/empty/grep" 2>/dev/null || true
 
 echo "== A: stubs (argv construido) =="
 export ARXY_ROOT="/tmp/fake-root-no-existe" ARXY_PROBE="si" ARXY_BRIDGE_TOKEN="tok-dummy"
 sudo() { printf '%s\n' "$@" > "$REC"; return 0; }
-as_root true anything
+( PATH="$D/empty" as_root true anything )
 grep -q "^ARXY_ROOT=/tmp/fake-root-no-existe$" "$REC" && ok "sudo propaga ROOT" || no "sudo propaga ROOT"
 if grep -q "^ARXY_PROBE=" "$REC"; then
     no "sudo propaga variable fuera de la interfaz"
@@ -28,8 +32,6 @@ fi
 grep -q "^ARXY_BRIDGE_TOKEN=tok-dummy$" "$REC" && ok "token viaja en re-exec" || no "token en re-exec"
 grep -q "^true$" "$REC" && grep -q "^anything$" "$REC" && ok "sudo mantiene argv tras --" || no "sudo argv"
 
-mkdir -p "$D/empty"
-ln -s "$(command -v grep)" "$D/empty/grep" 2>/dev/null || true
 doas() { printf '%s\n' "$@" > "$REC"; return 0; }
 # Sin funcion sudo ni sudo real en PATH: cae a la rama doas.
 ( unset -f sudo; PATH="$D/empty" as_root true anything )
@@ -46,7 +48,7 @@ out="$( ( unset -f sudo doas 2>/dev/null; PATH="$D/empty" as_root true anything 
 
 echo "== T2: need_root sin elevador muere claro"
 out="$( ( unset -f sudo doas 2>/dev/null; PATH="$D/empty" ARXY_ARGV=(shell) need_root ) 2>&1 )"; rc=$?
-[[ $rc -ne 0 ]] && grep -q "necesita root" <<<"$out" && ok "T2 need_root claro" || no "T2 need_root claro"
+[[ $rc -ne 0 ]] && grep -q "sudo/doas/pkexec" <<<"$out" && ok "T2 need_root claro" || no "T2 need_root claro"
 
 echo "== C: sudo real preserva la interfaz =="
 export ARXY_SYS_ROOT="/tmp/arxy-e2e-probe"
@@ -68,5 +70,23 @@ else
     if out="$(as_root env 2>/dev/null)" && grep -qx 'ARXY_SYS_ROOT=/tmp/arxy-e2e-probe' <<<"$out"; then ok "T3 as_root";
     else no "T3 as_root"; fi
 fi
+
+echo "== D: headless + pkexec (GUI/.desktop) =="
+pkexec() { printf '%s\n' "$@" > "$REC"; return 0; }
+# sudo con password: el probe -n falla y manda a pkexec.
+sudo() { [[ "${1:-}" == "-n" ]] && return 1; printf '%s\n' "$@" > "$REC"; return 0; }
+ENV_BIN="$(command -v env)"
+as_root true anything </dev/null
+_first="$(head -n 1 "$REC")"; _last="$(tail -n 2 "$REC" | tr '\n' ' ')"
+[[ "$_first" == "$ENV_BIN" ]] && ok "D pkexec via env absoluto" || no "D pkexec via env" "$_first"
+grep -q "^ARXY_ROOT=/tmp/fake-root-no-existe$" "$REC" && ok "D pkexec propaga ROOT" || no "D pkexec propaga ROOT"
+[[ "$_last" == "true anything " ]] && ok "D pkexec mantiene argv" || no "D pkexec argv" "$_last"
+
+echo "== E: sudo passwordless manda sobre pkexec sin tty =="
+sudo() { printf '%s\n' "$@" > "$REC"; return 0; }
+as_root true anything </dev/null
+_first="$(head -n 1 "$REC")"
+[[ "$_first" == ARXY_* ]] && [[ "$_first" != "$ENV_BIN" ]] && ok "E sudo sin password gana" || no "E sudo gana" "$_first"
+unset -f pkexec sudo
 
 finish
