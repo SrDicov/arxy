@@ -3,6 +3,42 @@
 # siguiente invocacion (ver recover_staging). Orden: descarga -> fsync -> sha
 # -> staging -> fsync -> version DENTRO del staging -> fsync -> rotacion via
 # .old.tmp.$$ -> rename -> fsync -> rotar .old -> fsync. Red (-Sy) al final.
+# --- repos CachyOS por microarquitectura (solo si la imagen los trae)
+# Contrato con arxy-image: cachyos-keyring instalado + mirrorlists en
+# /etc/pacman.d/ + stanzas comentadas (#[cachyos*]) en pacman.conf.
+# Sin marker: repos base, sin tocar nada. pacman.conf vive DENTRO del
+# root: rollback lo restaura solo, sin backup extra. [cachyos] trae el
+# pacman forkeado (wiki CachyOS); los tiers -v3/-v4/-znver4 son seguros.
+cachy_usable() { # 0 si la imagen trae keyring + mirrorlist base
+    [[ -f "$ARXY_ROOT/etc/pacman.d/cachyos-mirrorlist" ]] || return 1
+    run_pacman -Qq cachyos-keyring >/dev/null 2>&1
+}
+
+cachy_activate() { # <v3|v4|znver4> : activa ese tier + [cachyos]; 1 si la imagen no trae stanzas
+    local tier="$1" ml="cachyos-v3-mirrorlist" conf="$ARXY_ROOT/etc/pacman.conf"
+    case "$tier" in
+        v3) ;;
+        v4|znver4) ml="cachyos-v4-mirrorlist" ;; # v4 y znver4 comparten mirrorlist (wiki)
+        *) return 1 ;;
+    esac
+    [[ -f "$conf" ]] || return 1
+    grep -q 'cachyos' "$conf" 2>/dev/null || return 1
+    [[ -f "$ARXY_ROOT/etc/pacman.d/$ml" ]] || return 1
+    # Neutraliza tiers previos y activa el que toca (idempotente).
+    sed -i -E 's@^\[(cachyos-(core-|extra-)?(v3|v4|znver4))\]@#[\1]@' "$conf" \
+    && sed -i -E 's@^Include = /etc/pacman\.d/(cachyos-v3-mirrorlist|cachyos-v4-mirrorlist)@#Include = /etc/pacman.d/\1@' "$conf" \
+    && sed -i -E "s@^#(\[(cachyos(-${tier}|-core-${tier}|-extra-${tier})?)\])@\1@" "$conf" \
+    && sed -i -E "s@^#(Include = /etc/pacman\.d/(cachyos-mirrorlist|${ml}))@\1@" "$conf"
+}
+
+cachy_active_tier() { # v3|v4|znver4 del pacman.conf activo (rc 1 si base)
+    local conf="$ARXY_ROOT/etc/pacman.conf" t
+    [[ -f "$conf" ]] || return 1
+    for t in znver4 v4 v3; do
+        grep -q "^\[cachyos-core-${t}\]" "$conf" 2>/dev/null && { echo "$t"; return 0; }
+    done
+    return 1
+}
 cmd_setup() {
     [[ $# -eq 0 ]] || die "uso: $PROG setup"
     need_root
@@ -177,8 +213,29 @@ cmd_setup() {
     # Perfil HW persistido (caché del mismo schema; doctor calcula fresco).
     # Antes del -Sy: describe lo instalado aunque falle la red. Nunca falla setup.
     write_hardware_json "$(emit_hardware_json 2>/dev/null || true)"
-    msg "sincronizando bases de pacman..."
-    pacman_mut -Sy || die "fallo 'pacman -Sy' en $ARXY_ROOT (¿red o DNS? reintenta '$PROG setup' o revisa '$PROG doctor')"
+    local tier=""
+    tier="$(cpu_tier 2>/dev/null || true)"
+    if [[ -n "$tier" ]] && cachy_usable 2>/dev/null; then
+        # Migracion wiki CachyOS: stanzas -> -Sy -> -Syu -> reinstalar
+        # explicitos desde el tier nuevo (mismo ver-rel no subiria solo).
+        msg "microarquitectura $tier: activando repos CachyOS..."
+        cachy_activate "$tier" || die "la imagen trae CachyOS pero no pude activar el tier $tier"
+        pacman_mut -Syy || die "fallo 'pacman -Syy' en $ARXY_ROOT (¿red o DNS? reintenta '$PROG setup' o revisa '$PROG doctor')"
+        local -a nc
+        nc_args nc
+        pacman_mut -Syu "${nc[@]}" || die "fallo 'pacman -Syu' en $ARXY_ROOT (¿red o lock? mira el error de arriba)"
+        local -a re=()
+        mapfile -t re < <(run_pacman -Qqn 2>/dev/null || true)
+        if ((${#re[@]})); then
+            pacman_mut -S "${nc[@]}" "${re[@]}" || die "fallo la migracion a CachyOS $tier en $ARXY_ROOT (mira el error de arriba)"
+        fi
+        clean_pkg_cache
+        msg "CachyOS tier $tier activo y actualizado"
+    else
+        [[ -n "$tier" ]] && msg "imagen sin soporte CachyOS: repos base" || msg "CPU sin x86-64-v3: repos base"
+        msg "sincronizando bases de pacman..."
+        pacman_mut -Sy || die "fallo 'pacman -Sy' en $ARXY_ROOT (¿red o DNS? reintenta '$PROG setup' o revisa '$PROG doctor')"
+    fi
     msg "imagen lista en $ARXY_ROOT"
 }
 
