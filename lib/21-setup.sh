@@ -58,10 +58,16 @@ cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> rein
     nc_args nc
     pacman_mut -S "${nc[@]}" cachyos/pacman || die "fallo instalar pacman de [cachyos] en $ARXY_ROOT (sin el, x86_64_v3 es invalido)"
     pacman_mut -Syu "${nc[@]}" || die "fallo 'pacman -Syu' en $ARXY_ROOT (¿red o lock? mira el error de arriba)"
-    local -a re=()
+    local -a re=() mig=()
     mapfile -t re < <(run_pacman -Qqn 2>/dev/null || true)
-    if ((${#re[@]})); then
-        pacman_mut -S "${nc[@]}" "${re[@]}" || die "fallo la migracion a CachyOS $tier en $ARXY_ROOT (mira el error de arriba)"
+    # Respeta el hold de la mini (IgnorePkg=mesa): reinstalarlo desde el
+    # tier traeria el paquete full y pregunta en headless (muerte sin
+    # tty). gpu-* lo levanta a pedido (ver cmd_install).
+    local hold=" $(sed -n 's/^IgnorePkg[[:space:]]*=[[:space:]]*//p' "$ARXY_ROOT/etc/pacman.conf" | tr '\n' ' ') "
+    local p
+    for p in ${re[@]+"${re[@]}"}; do [[ "$hold" == *" $p "* ]] || mig+=("$p"); done
+    if ((${#mig[@]})); then
+        pacman_mut -S "${nc[@]}" "${mig[@]}" || die "fallo la migracion a CachyOS $tier en $ARXY_ROOT (mira el error de arriba)"
     fi
     clean_pkg_cache
     msg "CachyOS tier $tier activo y actualizado"

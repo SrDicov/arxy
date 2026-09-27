@@ -12,6 +12,15 @@ activaba pero el `-Syu` moría).
   con marker). Ahora la migración instala primero `cachyos/pacman`
   (parcheado, pin de repo) tras el `-Syy`, y `cachy_activate` fija
   `Architecture = auto` (la imagen puede traerlo pineado).
+- El reinstalar-explícitos moría sin tty por el hold (`IgnorePkg=mesa`
+  pregunta aunque haya `--noconfirm`): la migración excluye los holds
+  de la lista (gpu-* lo levanta a pedido, como antes).
+- Causa raíz del "not enough free disk space" con disco libre: los
+  ro-bind de L1 (`/etc/hosts`, `resolv.conf`) falsean el CheckSpace de
+  pacman cuando `filesystem` entra en la transacción. `pacman_mut` en
+  L1 usa conf temporal sin CheckSpace, igual que en nivel 2 (el
+  temporal va en `/tmp` del host, que va bindeado dentro). Esto también
+  blinda futuros `update` con upgrade de `filesystem`.
 
 ## [0.6.2] - 2026-09-27
 

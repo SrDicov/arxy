@@ -13,6 +13,8 @@ export ARXY_ROOT="/tmp/cachytest/root"
 . "$HERE/../lib/60-detect.sh" >/dev/null 2>&1
 # shellcheck source=../lib/21-setup.sh
 . "$HERE/../lib/21-setup.sh" >/dev/null 2>&1
+# shellcheck source=../lib/10-level.sh
+. "$HERE/../lib/10-level.sh" >/dev/null 2>&1 # pacman_tmpconf para E ()
 D="$(mktemp -d)"
 trap 'rm -rf "$D"' EXIT
 
@@ -115,10 +117,10 @@ grep -q '^\[cachyos-znver4\]$' "$R/etc/pacman.conf" && ok "znver4 activo" || no 
 g="$(cachy_active_tier 2>/dev/null || true)"; [[ "$g" == znver4 ]] && ok "tier activo znver4" || no "tier activo znver4" "$g"
 
 echo "== D: migracion instala pacman [cachyos] antes del -Syu =="
-printf '[options]\nArchitecture = x86_64\n#[cachyos-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos-core-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos-extra-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos]\n#Include = /etc/pacman.d/cachyos-mirrorlist\n[core]\nInclude = /etc/pacman.d/mirrorlist\n' > "$R/etc/pacman.conf"
+printf '[options]\nArchitecture = x86_64\nIgnorePkg = mesa\n#[cachyos-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos-core-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos-extra-v3]\n#Include = /etc/pacman.d/cachyos-v3-mirrorlist\n#[cachyos]\n#Include = /etc/pacman.d/cachyos-mirrorlist\n[core]\nInclude = /etc/pacman.d/mirrorlist\n' > "$R/etc/pacman.conf"
 : > "$R/etc/pacman.d/cachyos-mirrorlist"
 pacman_mut() { printf '%s\n' "$*" >>"$D/calls"; }
-run_pacman() { [[ "${1:-}" == -Qqn ]] && printf 'pkg1\npkg2\n'; return 0; }
+run_pacman() { [[ "${1:-}" == -Qqn ]] && printf 'pkg1\nmesa\npkg2\n'; return 0; }
 nc_args() { local -n _nc=$1; _nc=(--noconfirm); }
 msg() { :; }
 die() { echo "DIE $*" >&2; return 1; }
@@ -128,10 +130,19 @@ cachy_migrate v3 2>/dev/null && ok "migrate v3 rc 0" || no "migrate v3 rc 0"
 grep -q '^Architecture = auto$' "$R/etc/pacman.conf" && ok "Architecture pineado -> auto" || no "Architecture auto"
 grep -q '^\[cachyos-v3\]$' "$R/etc/pacman.conf" && ok "migrate activa v3" || no "migrate activa v3"
 printf '%s\n' "-Syy" "-S --noconfirm cachyos/pacman" "-Syu --noconfirm" "-S --noconfirm pkg1 pkg2" > "$D/want"
-cmp "$D/calls" "$D/want" 2>/dev/null && ok "orden: Syy -> pacman -> Syu -> reinstalar" || no "orden migracion" "$(tr '\n' '|' <"$D/calls" 2>/dev/null)"
+cmp "$D/calls" "$D/want" 2>/dev/null && ok "orden: Syy -> pacman -> Syu -> reinstalar (mesa en hold, fuera)" || no "orden migracion" "$(tr '\n' '|' <"$D/calls" 2>/dev/null)"
 printf '[options]\n[core]\nInclude = /etc/pacman.d/mirrorlist\n#[cachyos]\n#Include = /etc/pacman.d/cachyos-mirrorlist\n' > "$R/etc/pacman.conf"
 cachy_activate v3 2>/dev/null
 grep -q '^Architecture = auto$' "$R/etc/pacman.conf" && ok "Architecture ausente -> auto" || no "Architecture append"
+
+echo "== E: tmpconf host sin CheckSpace =="
+printf '[options]\nCheckSpace\nArchitecture = auto\n[core]\nInclude = /etc/pacman.d/mirrorlist\n' > "$R/etc/pacman.conf"
+_t="$(pacman_tmpconf mut host)" && ok "tmpconf host rc 0" || no "tmpconf host rc 0"
+[[ "$_t" == /tmp/pacman-arxy.* ]] && ok "vive en /tmp del host" || no "ruta host" "$_t"
+grep -q 'CheckSpace' "$_t" && no "sin CheckSpace" || ok "sin CheckSpace"
+grep -q '^Architecture = auto$' "$_t" && ok "conserva resto" || no "conserva resto"
+grep -q '^Include = /etc/pacman.d/mirrorlist$' "$_t" && ok "includes intactos" || no "includes"
+rm -f "$_t"
 
 echo "== C: sin marker no se toca =="
 rm -f "$R/etc/pacman.d/cachyos-mirrorlist"

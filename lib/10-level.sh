@@ -226,10 +226,18 @@ in_chroot() {
     return $rc
 }
 
-# Conf temporal de pacman para nivel 2 (el llamador la borra tras usarla).
-pacman_tmpconf() { # ro|mut : ruta por stdout; 1 = sin temporal, 2 = transform fallo
-    mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
-    local _t _tpl="$ARXY_ROOT/tmp/pacman-arxy.XXXXXX"
+# Conf temporal de pacman para escrituras (el llamador la borra tras usarla).
+pacman_tmpconf() { # [ro|mut] [host] : ruta por stdout; 1 = sin temporal, 2 = transform fallo
+    local _t _tpl
+    if [[ "${2:-}" == host ]]; then
+        # L1 bindea /tmp del host sobre el del root: un temporal bajo
+        # $ARXY_ROOT/tmp no seria visible dentro. Va en /tmp del host y
+        # se cita como /tmp/<base> (misma ruta dentro y fuera).
+        _tpl="/tmp/pacman-arxy.XXXXXX"
+    else
+        mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
+        _tpl="$ARXY_ROOT/tmp/pacman-arxy.XXXXXX"
+    fi
     if [[ "${1:-}" == ro ]]; then
         _tpl="$ARXY_ROOT/tmp/pacman-arxy-ro.XXXXXX"
     else
@@ -259,7 +267,19 @@ pacman_mut() {
         rm -f "$tmpconf" || true
         return $rc
     else
-        in_bwrap /usr/bin/pacman "$@"
+        # Sin CheckSpace: los ro-bind de L1 (/etc/hosts, resolv.conf)
+        # falsean su contabilidad cuando `filesystem` entra en la
+        # transaccion ("not enough free disk space" con 167G libres;
+        # muerte probada en la migracion CachyOS). Igual que en nivel 2:
+        # conf temporal sin CheckSpace.
+        local tmpconf _pcc=0
+        tmpconf="$(pacman_tmpconf mut host)"; _pcc=$?
+        (( _pcc == 1 )) && die "no pude crear conf temporal (¿espacio en /tmp?)"
+        (( _pcc != 0 )) && die "imagen rota: sin pacman.conf (reinstala con 'sudo $PROG setup')"
+        in_bwrap /usr/bin/pacman --config "/tmp/${tmpconf##*/}" "$@"
+        local rc=$?
+        rm -f "$tmpconf" || true
+        return $rc
     fi
 }
 
