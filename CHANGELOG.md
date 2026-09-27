@@ -1,5 +1,21 @@
 # Changelog de arxy
 
+## [0.6.2] - 2026-09-27
+
+Soporte GUI headless (neko wizard) + repos CachyOS por microarquitectura.
+
+### Añadido
+
+- Elevación `pkexec` sin tty: `_root_run` usa polkit cuando no hay
+  terminal y sudo pediría contraseña; con sudo passwordless
+  (cron/NOPASSWD) se conserva sudo; en terminal nada cambia. `REAL_USER`
+  resuelve `PKEXEC_UID` (los `.desktop` ya no caen en `/root`).
+- `arxy setup` activa repos CachyOS según el host (`cpu_tier`:
+  v3|v4|znver4 por flags de `/proc/cpuinfo`; híbridos Intel topan v3,
+  znver4 solo AMD con VBMI), solo si la imagen trae el marker, y migra
+  (wiki CachyOS: `-Syy`, `-Syu`, reinstalar explícitos). Sin marker o
+  sin v3: repos base, como antes. `version --verbose` muestra el tier.
+
 ## [0.6.1] - 2026-09-24
 
 Endurecimiento + dieta: sin cambios de UX salvo avisos más claros.
