@@ -57,6 +57,8 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 - Mocks de detección (tests sin root ni imagen): `ARXY_SYS_ROOT` (prefijo
   /proc+/sys), `ARXY_DEV_PATH`, `ARXY_LIB_DIR`/`ARXY_LIB64_DIR`, `ARXY_SYS_DRM_PATH`.
   Tests de rama glibc/musl deben mockear `detect_libc` y cubrir AMBOS casos.
+  `cpu_tier` no usa env nuevo: args opcionales `[cpuinfo] [arch]`
+  (default: `${ARXY_SYS_ROOT:-}/proc/cpuinfo` + `uname -m`).
 - Tests con `sh -c` + funciones de lib/: `export -f` funciones y vars, o
   llamadas directas. Kills deterministas: overrides de función que matan TRAS
   la fase + `kill -9 $BASHPID` (`$$` mataría al test, no al subshell).
@@ -68,6 +70,10 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
   (split-brain: setup extraía en un root y escribía estado en otro).
 - Re-exec con privilegios (`need_root`, `as_root`) pasa `ARXY_*` solo vía
   `arxy_env_pass()` (única fuente; sudo pelado opera sobre el rootfs default).
+  Sin tty y con sudo con password → `pkexec env …` (polkit, sin `.policy`
+  propio); `sudo -n` passwordless se conserva (cron/NOPASSWD); en terminal
+  nada cambia. Bajo pkexec `REAL_USER` sale de `PKEXEC_UID` (no hay
+  `SUDO_USER`).
 - Con `pipefail`, `prod | grep -q` miente (SIGPIPE 141): capturar en variable
   y grepear después. Presencia de binario = `test -x`, nunca `--version`.
 - `file://` no acepta espacios en la ruta. `command -v` no resuelve
@@ -95,6 +101,10 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 - Firmas minisign: trust root `config/arxy.pub`; `setup` verifica según
   `ARXY_SIGNATURE_POLICY=required|optional|off` (default `optional`).
   Pin `ARXY_IMAGE_SHA256` + `required` = die (fail closed: el pin omite firma).
+- CachyOS (contrato con `arxy-image`): `setup` solo activa tier si el rootfs
+  trae marker (keyring instalado + mirrorlists + stanzas `#[cachyos*]`
+  comentadas); `pacman.conf` vive dentro del root (rollback lo restaura,
+  sin backup extra). Sin marker o sin v3: repos base, sin tocar nada.
 
 ## No resucitar sin contexto
 
