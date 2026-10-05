@@ -49,7 +49,6 @@ bwrap_base() {
     [[ -f /etc/localtime ]] && printf '%s\n' --ro-bind-try /etc/localtime /etc/localtime
 }
 
-# Ejecuta dentro sin reemplazar el proceso; el llamador delimita el comando.
 in_bwrap() {
     local -a b
     mapfile -t b < <(bwrap_base)
@@ -58,7 +57,7 @@ in_bwrap() {
         "$@"
 }
 
-# Como in_bwrap, pero hace exec y añade NVIDIA/bridge cuando están disponibles.
+# Como in_bwrap, pero hace exec y añade NVIDIA/bridge si estan disponibles.
 # Los ICD se pasan por FD para evitar temporales compartidos.
 run_in() {
     local -a b
@@ -66,8 +65,8 @@ run_in() {
     local _nvm _nvi
     _nvm="$(nvidia_mounts 2>/dev/null || true)"
     _nvi="$(nvidia_icds 2>/dev/null || true)"
-    # musl: el userspace grafico del host no sirve en el rootfs glibc;
-    # fuera libs+ICDs (devices ya vienen con --dev-bind /dev de la base).
+    # musl: el userspace grafico del host no sirve en el rootfs glibc; fuera
+    # libs+ICDs (los devices ya vienen con --dev-bind /dev de la base).
     if [[ "$(detect_libc 2>/dev/null || true)" == musl ]]; then _nvm=""; _nvi=""; fi
     if [[ -n "$_nvm$_nvi" ]]; then
         # bwrap procesa en orden: crear destinos antes de bindear bibliotecas.
@@ -101,8 +100,7 @@ run_in() {
             b+=(--ro-bind-data "$_nfd" "$_d/$(basename "$_ip")")
         done <<<"$_nvi"
     fi
-    # El bridge es opcional y puede no estar cargado en pruebas unitarias.
-    # bridge_active_socket concentra fallback, autoarranque y validación.
+    # El bridge es opcional (puede no estar cargado en tests).
     local _bsock="" _btok=""
     if command -v bridge_active_socket >/dev/null 2>&1; then
         _bsock="$(bridge_active_socket || true)"
@@ -135,8 +133,7 @@ run_pacman() {
     fi
 }
 
-# --- niveles de ejecucion
-# Nivel 1 usa bwrap; nivel 2 usa ld-linux para run y chroot para mutaciones.
+# --- niveles: 1 = bwrap; 2 = ld-linux para run y chroot para mutaciones.
 level() { # deja el nivel en _ARXY_LEVEL (memoizado por proceso)
     [[ -n "${_ARXY_LEVEL:-}" ]] && return 0
     if [[ "${ARXY_LEVEL:-}" == 1 || "${ARXY_LEVEL:-}" == 2 ]]; then
@@ -169,7 +166,7 @@ level2_env() {
     done
 }
 
-# in_sys <ruta-absoluta-del-subsistema> [args...] : ejecuta en el nivel activo.
+# in_sys <ruta-absoluta> [args...] : ejecuta en el nivel activo.
 in_sys() {
     level
     local bin="$1"; shift
@@ -182,7 +179,7 @@ in_sys() {
     fi
 }
 
-# Chroot de nivel 2 con mounts mínimos y limpieza en orden inverso.
+# Chroot de nivel 2 (mounts minimos, limpieza en orden inverso).
 in_chroot() {
     local dst mounted=() rc=0 resolv_bak="" resolv_created=""
     for dst in "$ARXY_ROOT/proc" "$ARXY_ROOT/sys" "$ARXY_ROOT/dev"; do
@@ -211,7 +208,7 @@ in_chroot() {
         mount --bind "$ARXY_BUILD" "$ARXY_ROOT$NS_BUILD" 2>/dev/null && \
             mounted+=("$ARXY_ROOT$NS_BUILD")
     fi
-    # Entorno limpio dentro: nada del host (un LD_LIBRARY_PATH del host seria fatal).
+    # Entorno limpio dentro: un LD_LIBRARY_PATH del host seria fatal.
     chroot "$ARXY_ROOT" /usr/bin/env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/bin" \
         LC_ALL=C HOME=/root "$@" || rc=$?
     local d
@@ -230,9 +227,8 @@ in_chroot() {
 pacman_tmpconf() { # [ro|mut] [host] : ruta por stdout; 1 = sin temporal, 2 = transform fallo
     local _t _tpl
     if [[ "${2:-}" == host ]]; then
-        # L1 bindea /tmp del host sobre el del root: un temporal bajo
-        # $ARXY_ROOT/tmp no seria visible dentro. Va en /tmp del host y
-        # se cita como /tmp/<base> (misma ruta dentro y fuera).
+        # L1 bindea el /tmp del host sobre el del root: un temporal bajo
+        # $ARXY_ROOT/tmp no seria visible dentro (se cita como /tmp/<base>).
         _tpl="/tmp/pacman-arxy.XXXXXX"
     else
         mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
@@ -245,10 +241,10 @@ pacman_tmpconf() { # [ro|mut] [host] : ruta por stdout; 1 = sin temporal, 2 = tr
     fi
     _t="$(mktemp "$_tpl")" || return 1 # busybox exige plantilla TERMINADA en XXXXXX (.conf no vale)
     if [[ "${1:-}" == ro ]]; then
-        # Lecturas sin namespace: reescribir Include absolutos hacia el rootfs.
+        # Lecturas sin namespace: los Include absolutos apuntan al rootfs.
         sed "s|/etc/pacman.d/|$ARXY_ROOT/etc/pacman.d/|g" "$ARXY_ROOT/etc/pacman.conf" > "$_t" 2>/dev/null || { rm -f "$_t"; return 2; }
     else
-        # Escrituras en chroot: CheckSpace no puede resolver / ahi dentro.
+        # Escrituras en chroot: CheckSpace no resuelve / dentro.
         grep -v '^[[:space:]]*CheckSpace' "$ARXY_ROOT/etc/pacman.conf" > "$_t" || { rm -f "$_t"; return 2; }
     fi
     printf '%s' "$_t"
@@ -267,11 +263,10 @@ pacman_mut() {
         rm -f "$tmpconf" || true
         return $rc
     else
-        # Sin CheckSpace: los ro-bind de L1 (/etc/hosts, resolv.conf)
-        # falsean su contabilidad cuando `filesystem` entra en la
-        # transaccion ("not enough free disk space" con 167G libres;
-        # muerte probada en la migracion CachyOS). Igual que en nivel 2:
-        # conf temporal sin CheckSpace.
+        # Sin CheckSpace: los ro-bind de L1 (/etc/hosts, resolv.conf) falsean
+        # su contabilidad cuando `filesystem` entra en la transaccion
+        # ("not enough free disk space" con 167G libres; visto en la
+        # migracion CachyOS). Igual que en nivel 2.
         local tmpconf _pcc=0
         tmpconf="$(pacman_tmpconf mut host)"; _pcc=$?
         (( _pcc == 1 )) && die "no pude crear conf temporal (¿espacio en /tmp?)"
@@ -283,8 +278,8 @@ pacman_mut() {
     fi
 }
 
-# Si PWD no es visible dentro, entrar via /host (siempre bindeado).
-# En nivel 2 no hay namespace: el PWD del host es directamente valido.
+# Si PWD no es visible dentro, entrar via /host. En nivel 2 no hay namespace:
+# el PWD del host es directamente valido.
 inside_dir() {
     [[ "$_ARXY_LEVEL" == 2 ]] && { echo "$PWD"; return 0; }
     if host_path_visible "$PWD"; then echo "$PWD"; else echo "/host$PWD"; fi

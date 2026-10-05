@@ -1,8 +1,7 @@
 pkg_desktops() { # <pkg> -> rutas /usr/share/applications/*.desktop dentro de la imagen
     # L2: pacman --root prefija cada ruta con $ARXY_ROOT (en L1 salen
-    # peladas): se recorta el prefijo para que el grep vea lo mismo.
-    # ← ciclo 6.5.5 en Void-musl (L2): install/export decia "sin .desktop"
-    # para todo paquete (Alacritty.desktop, org.xfce.mousepad.desktop).
+    # peladas): sin recortarla, install/export decia "sin .desktop" para todo
+    # (ciclo 6.5.5 en Void-musl).
     local f base
     while IFS= read -r f; do
         f="${f#$ARXY_ROOT}"
@@ -17,11 +16,11 @@ desk_field() { grep -m1 -E "^$2=" "$1" | cut -d= -f2-; }
 # cmd_export <pkg | archivo.desktop | --all>
 cmd_export() {
     [[ $# -eq 1 ]] || die "uso: $PROG export <paquete | archivo.desktop | --all>"
-    # Sin flags a run_pacman (-Qlq pasaria la opcion a pacman).
+    # Sin flags a run_pacman: -Qlq pasaria la opcion a pacman.
     [[ "$1" == -* && "$1" != --all ]] && die "opcion no soportada en export: '$1'"
-    # el nombre de paquete se valida ANTES de ensure_image (un "a b"
-    # moria en pacman tras descargar; un "" daba "sin .desktop" rc 0).
-    # Rutas .desktop sí pueden llevar espacios: no se validan.
+    # El nombre de paquete se valida ANTES de ensure_image (un "a b" moria
+    # en pacman tras descargar; un "" daba "sin .desktop" rc 0). Las rutas
+    # .desktop si pueden llevar espacios: no se validan.
     if [[ "$1" != --all && "$1" != *.desktop ]]; then check_pkg_name "$1"; fi
     ensure_image
     local -a srcs=()
@@ -45,10 +44,9 @@ cmd_export() {
     fi
     local s lbl
     for s in "${srcs[@]}"; do
-        # export --all / <archivo.desktop> etiquetaba con el
-        # literal ("--all", "foo.desktop") y remove nunca lo encontraba
-        # (solo borra por nombre exacto de paquete). Deducir por fichero
-        # con la misma funcion que migrate (idempotente).
+        # export --all / <archivo.desktop> etiquetaba con el literal y remove
+        # nunca lo encontraba (solo borra por nombre exacto de paquete):
+        # deducir por fichero con la misma funcion que migrate.
         if [[ "$1" == --all || "$1" == *.desktop ]]; then
             lbl="$(_desktop_infer_pkg "$s")"
             [[ -n "$lbl" ]] || lbl="$1"
@@ -121,8 +119,8 @@ _desktop_infer_pkg() { # <ruta arxy-*.desktop> -> imprime el pkg inferido
     local base="${1##*/}"
     base="${base#arxy-}"
     base="${base%.desktop}"
-    # Multi-desktop (p. ej. xterm trae xterm+uxterm con X-Arxy-Pkg=xterm):
-    # el nombre solo aproxima; el proximo install/export lo corrige.
+    # Multi-desktop (xterm trae xterm+uxterm con X-Arxy-Pkg=xterm): el nombre
+    # solo aproxima; el proximo install/export lo corrige.
     [[ -n "$base" ]] || base="unknown"
     printf '%s' "$base"
 }
@@ -142,9 +140,9 @@ cmd_desktop_migrate() { # etiqueta legacy sin X-Arxy-Pkg (idempotente)
 }
 
 desktop_migrate_auto() { # [verbose] tras install/update: aviso a stderr, nunca falla
-    # Núcleo único del migrate: el cmd pide detalle por lanzador + resumen
-    # (msg/stdout); el hook auto solo avisa a stderr si migró algo.
-    # Solo añade el tag (no toca Name/Exec): no requiere update-desktop-database.
+    # Nucleo unico del migrate: el cmd pide detalle por lanzador + resumen, el
+    # hook auto solo avisa a stderr. Solo anade el tag (no toca Name/Exec):
+    # no requiere update-desktop-database.
     local verbose="${1:-}" f n=0 s=0 pkg
     shopt -s nullglob
     for f in "$REAL_APPS"/arxy-*.desktop; do

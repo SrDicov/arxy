@@ -1,7 +1,7 @@
 # --- ejecucion (corre como usuario)
 # canonicaliza una ruta sin fiarse del || entre comandos que escriben a
-# stdout: busybox realpath no conoce -m, lo trata como operando (imprime
-# su resolucion y falla) y el fallback duplicaria la ruta con un \n.
+# stdout: busybox realpath no conoce -m, lo trata como operando (imprime su
+# resolucion y falla) y el fallback duplicaria la ruta con un \n.
 resolve_path() { # <ruta> -> ruta canonica (siempre tiene exito)
     local r
     if r="$(realpath -m "$1" 2>/dev/null)" && [[ "$r" != *$'\n'* ]]; then
@@ -41,8 +41,8 @@ resolve_target() { # <bin|ruta> -> deja la ruta vista desde dentro en RESOLVED_T
         fi
     else
         for cand in "/usr/bin/$t" "/usr/local/bin/$t" "/bin/$t" "/usr/sbin/$t"; do
-            # -L ademas de -x: los symlinks absolutos (/usr/bin/x -> /opt/...)
-            # cuelgan vistos desde el host aunque resuelvan bien dentro.
+            # -L ademas de -x: un symlink absoluto (/usr/bin/x -> /opt/...)
+            # cuelga visto desde el host aunque resuelva bien dentro.
             if [[ -x "$ARXY_ROOT$cand" || -L "$ARXY_ROOT$cand" ]]; then RESOLVED_TARGET="$cand"; return 0; fi
         done
         h="$(command -v "$t" 2>/dev/null || true)"
@@ -97,8 +97,8 @@ cmd_run() {
     run_in --chdir "$(inside_dir)" -- "$target" "$@"
 }
 
-# shell en nivel 2: bash del subsistema via ld-linux. Los nombres que el
-# host no resuelve caen en command_not_found_handle (ver level2-rc de setup).
+# shell en nivel 2: bash del subsistema via ld-linux. Los nombres que el host
+# no resuelve caen en command_not_found_handle (level2-rc de setup).
 cmd_shell_level2() {
     level2_env
     bridge_env_l2 # la shell L2 tambien ve el bridge
@@ -132,9 +132,9 @@ cmd_shell() {
         msg "sesion de usuario (solo lectura del sistema; para administrar: sudo $PROG shell)"
     fi
     if [[ $# -ge 1 ]]; then
-        # shell toma un STRING de shell (como ssh): unir con espacios para
-        # bash -c. El re-exec a root ya preserva el argv; serializar con %q
-        # aqui romperia pipes, redirects y comillas.
+        # shell toma un STRING (como ssh): unir con espacios para bash -c. El
+        # re-exec a root preserva el argv; serializar con %q aqui romperia
+        # pipes, redirects y comillas.
         # shellcheck disable=SC2145
         run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " -- /bin/bash -c "$*"
     else

@@ -5,9 +5,9 @@ _gc_bytes() { # <path> : bytes en disco (0 si falta)
     echo "${b:-0}"
 }
 
-# Limpieza con JSON: informa siempre (exit 0); --apply purga.
-# root.old VALIDO exige prompt tty (puede resucitarse) salvo --yes;
-# root.old CORRUPTO se purga sin preguntar (no hay nada que recuperar).
+# Limpieza con JSON: informa siempre (exit 0); --apply purga. root.old VALIDO
+# exige prompt tty (puede resucitarse) salvo --yes; root.old CORRUPTO se purga
+# sin preguntar (no hay nada que recuperar).
 cmd_gc() { # [--json] [--apply [--yes]]
     local use_json="" apply="" yes="" a
     for a in "$@"; do
@@ -56,8 +56,8 @@ cmd_gc() { # [--json] [--apply [--yes]]
         [[ -d "$old" ]] && rm -rf "${old:?}" 2>/dev/null || true
         rm -f "$pkgdir"/* 2>/dev/null || true
         rm -rf "${ARXY_BUILD:?}" 2>/dev/null || true
-        # gc --apply garantiza ARXY_BUILD existente (1777, como setup): el
-        # siguiente build no depende de que setup haya corrido antes.
+        # gc --apply garantiza ARXY_BUILD (1777, como setup): el siguiente
+        # build no depende de que setup haya corrido antes.
         install -d -m1777 "$ARXY_BUILD" 2>/dev/null || true
         local post s2=0 _acc
         post=$(( $(_gc_bytes "$old") + $(_gc_bytes "$pkgdir") + $(_gc_bytes "$ARXY_BUILD") ))

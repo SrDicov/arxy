@@ -39,6 +39,11 @@ Los tests que usan `src/arxy`, siempre después de `make sync` (si no,
 mienten con el binario viejo). Suites en secuencia, nunca en paralelo.
 `tests/test-hardware.sh` solo en host real con Intel, nunca en container.
 
+La validación end-to-end (matrix de 5 distros en `arxy-image`, qué cubre
+cada nivel) está resumida en [ARCHITECTURE.md](ARCHITECTURE.md#8-validation).
+Antes de un push que toque rutas, env o empaquetado, corre la matrix del
+repo hermano.
+
 ## Commits
 
 - Uno por tarea. Mensaje corto con el porqué.

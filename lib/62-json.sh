@@ -1,7 +1,7 @@
 # --- doctor --json (superficie pública versionada, format 1) ---
-# Sin jq a propósito (cero dependencias nuevas): printf + escaping mínimo.
-# Reglas: orden de campos fijo, arrays ordenados, avisos a stderr,
-# stdout = un solo documento JSON, exit igual que doctor en texto.
+# Sin jq a proposito (cero dependencias): printf + escaping minimo.
+# Reglas: orden de campos fijo, arrays ordenados, avisos a stderr, stdout = un
+# solo documento JSON, exit igual que doctor en texto.
 # Schema mínimo: format=int, level=int, libc={kind,version}, kernel={arch,
 # release}, capacidades=bool, landlock={available,abi}, gpu={vendor,driver,
 # render_node}, nvidia={present,version,usable,reason}, kmods=[], dev={},
@@ -44,8 +44,8 @@ probe_userns() { # 1 si hay namespaces sin root (misma prueba que doctor)
     echo 0
 }
 probe_overlayfs() ( # subshell: 1 si overlay rootless monta en userns, sin restos
-    # El mount vive en el ns muerto del unshare: nunca cuelga en el host.
-    # El EXIT trap queda confinado al subshell y cubre la muerte a mitad.
+    # El mount vive en el ns muerto del unshare: nunca cuelga en el host. El
+    # EXIT trap queda confinado al subshell (cubre la muerte a mitad).
     command -v unshare >/dev/null 2>&1 || { echo 0; return 0; }
     local t
     t="$(mktemp -d 2>/dev/null || true)"
@@ -83,8 +83,8 @@ cmd_doctor_json() { # [--fix|--apply] : se ignoran (solo se lista); JSON a stdou
     return $?
 }
 
-# Núcleo reutilizable (doctor --json y hardware.json de setup): emite el
-# JSON a stdout y devuelve el ok de doctor (para json=$(...) + rc).
+# Nucleo reutilizable (doctor --json y hardware.json de setup): emite el JSON
+# a stdout y devuelve el ok de doctor (para json=$(...) + rc).
 emit_hardware_json() {
     local ok=0 c
     for c in "${HOST_TOOLS[@]}"; do
@@ -127,8 +127,8 @@ emit_hardware_json() {
     done
     local rver=""
     [[ -f "$ARXY_VERSION_FILE" ]] && rver="$(version_field date || true)"
-    # (ruta JSON): mismo aviso que version_line, a stderr, sin
-    # tocar el documento (version:null ya es el contrato en corrupto).
+    # (ruta JSON): mismo aviso a stderr, sin tocar el documento (version:null
+    # ya es el contrato en corrupto).
     if [[ -f "$ARXY_VERSION_FILE" && -z "$rver" ]]; then
         msg "aviso: version ilegible, regenero en el proximo setup/install" >&2
     fi
@@ -165,8 +165,8 @@ emit_hardware_json() {
     return $ok
 }
 
-# Perfil persistido: hardware.json es CACHÉ del mismo schema,
-# escrita por setup; doctor --json siempre calcula fresco, nunca la lee.
+# hardware.json es CACHE del mismo schema, escrita por setup; doctor --json
+# siempre calcula fresco, nunca la lee.
 write_hardware_json() { # <json> : atómico + solo-si-cambia; nunca falla setup
     local json="$1" f="$ARXY_DATA/hardware.json" tmp old
     [[ -n "$json" ]] || return 0
