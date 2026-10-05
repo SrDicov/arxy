@@ -1,16 +1,11 @@
 # --- setup y rollback atomicos
 # Invariante: SIGKILL en cualquier punto deja el sistema recuperable en la
-# siguiente invocacion (ver recover_staging). Orden: descarga -> fsync -> sha
-# -> staging -> fsync -> version DENTRO del staging -> fsync -> rotacion via
-# .old.tmp.$$ -> rename -> fsync -> rotar .old -> fsync. Red (-Sy) al final.
+# siguiente invocacion (recover_staging); la red (-Sy) va al final.
 # --- repos CachyOS por microarquitectura (solo si la imagen los trae)
-# Contrato con arxy-image: cachyos-keyring instalado + mirrorlists en
-# /etc/pacman.d/ + stanzas comentadas (#[cachyos*]) en pacman.conf.
-# Sin marker: repos base, sin tocar nada. pacman.conf vive DENTRO del
-# root: rollback lo restaura solo, sin backup extra. [cachyos] trae el
-# pacman forkeado (acepta x86_64_v3/v4; el stock muere con "does not
-# have a valid architecture"): la migracion lo instala tras el -Syy,
-# antes del -Syu, y fija Architecture = auto al activar.
+# Contrato con arxy-image: cachyos-keyring + mirrorlists + stanzas #[cachyos*]
+# comentadas. Sin marker: repos base. pacman.conf vive DENTRO del root.
+# [cachyos] trae pacman forkeado (acepta x86_64_v3/v4; el stock muere con
+# "does not have a valid architecture"): va tras el -Syy y antes del -Syu.
 cachy_usable() { # 0 si la imagen trae keyring + mirrorlist base
     [[ -f "$ARXY_ROOT/etc/pacman.d/cachyos-mirrorlist" ]] || return 1
     run_pacman -Qq cachyos-keyring >/dev/null 2>&1
@@ -26,9 +21,7 @@ cachy_activate() { # <v3|v4|znver4> : activa ese tier + [cachyos]; 1 si la image
     [[ -f "$conf" ]] || return 1
     grep -q 'cachyos' "$conf" 2>/dev/null || return 1
     [[ -f "$ARXY_ROOT/etc/pacman.d/$ml" ]] || return 1
-    # Neutraliza tiers previos y activa el que toca (idempotente).
-    # Architecture = auto: el stock solo acepta x86_64 y los tiers sirven
-    # x86_64_v3/v4 (la imagen puede traerlo pineado; sin auto el -Syu muere).
+    # Architecture = auto: el stock solo acepta x86_64 y los tiers v3/v4 no.
     sed -i -E 's@^\[(cachyos-(core-|extra-)?(v3|v4|znver4))\]@#[\1]@' "$conf" \
     && sed -i -E 's@^Include = /etc/pacman\.d/(cachyos-v3-mirrorlist|cachyos-v4-mirrorlist)@#Include = /etc/pacman.d/\1@' "$conf" \
     && sed -i -E "s@^#(\[(cachyos(-${tier}|-core-${tier}|-extra-${tier})?)\])@\1@" "$conf" \
@@ -47,10 +40,8 @@ cachy_active_tier() { # v3|v4|znver4 del pacman.conf activo (rc 1 si base)
 }
 cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> reinstalar explicitos
     local tier="$1"
-    # El -Syu debe correr con el pacman de [cachyos] (parcheado: acepta
-    # x86_64_v3/v4); con el stock muere "does not have a valid
-    # architecture" (visto en setup real). Pin de repo: el de [core] no
-    # sirve. Explicitos al final: mismo ver-rel no subiria solo al tier.
+    # -Syu con el pacman de [cachyos] (el stock muere con x86_64_v3, visto en
+    # setup real). Explicitos al final: el mismo ver-rel no sube solo al tier.
     msg "microarquitectura $tier: activando repos CachyOS..."
     cachy_activate "$tier" || die "la imagen trae CachyOS pero no pude activar el tier $tier"
     pacman_mut -Syy || die "fallo 'pacman -Syy' en $ARXY_ROOT (¿red o DNS? reintenta '$PROG setup' o revisa '$PROG doctor')"
@@ -60,9 +51,8 @@ cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> rein
     pacman_mut -Syu "${nc[@]}" || die "fallo 'pacman -Syu' en $ARXY_ROOT (¿red o lock? mira el error de arriba)"
     local -a re=() mig=()
     mapfile -t re < <(run_pacman -Qqn 2>/dev/null || true)
-    # Respeta el hold de la mini (IgnorePkg=mesa): reinstalarlo desde el
-    # tier traeria el paquete full y pregunta en headless (muerte sin
-    # tty). gpu-* lo levanta a pedido (ver cmd_install).
+    # Respeta el hold IgnorePkg=mesa: el tier lo traeria full y en headless
+    # pregunta sin tty (muerte). gpu-* lo levanta a pedido (ver cmd_install).
     local hold p
     hold=" $(sed -n 's/^IgnorePkg[[:space:]]*=[[:space:]]*//p' "$ARXY_ROOT/etc/pacman.conf" | tr '\n' ' ') "
     for p in ${re[@]+"${re[@]}"}; do [[ "$hold" == *" $p "* ]] || mig+=("$p"); done
@@ -85,8 +75,7 @@ cmd_setup() {
     tmp="$(mktemp "$ARXY_DATA/.image.partial.XXXXXX")" || die "no pude crear temporal en $ARXY_DATA"
     sha_tmp="$(mktemp "$ARXY_DATA/.arxy-sha.XXXXXX")" || die "no pude crear temporal en $ARXY_DATA"
     sig_tmp="$(mktemp "$ARXY_DATA/.arxy-sig.XXXXXX")" || die "no pude crear temporal en $ARXY_DATA"
-    # este trap EXIT no guarda/restaura el del llamador a proposito
-    # (cmd_setup es toplevel/subshell: no hay trap previo que preservar).
+    # Este trap EXIT no restaura el del llamador a proposito (cmd_setup es toplevel).
     # shellcheck disable=SC2064
     trap "rm -f '$tmp' '$sha_tmp' '$sig_tmp'" EXIT
     msg "descargando imagen..."
@@ -95,10 +84,8 @@ cmd_setup() {
     if [[ -n "$ARXY_IMAGE_SHA256" ]]; then
         [[ "$(sha256sum <"$tmp" | awk '{print $1}')" == "$ARXY_IMAGE_SHA256" ]] || die "sha256 no coincide, abortando (¿descarga truncada? reintenta o revisa ARXY_IMAGE_SHA256)"
     else
-        # Sin hash fijado: intentar el .sha256 publicado junto al tarball
-        # en el release (arxy-image lo sube siempre). La URL puede traer
-        # ?query/#fragmento: se recortan antes de añadir .sha256.
-        # Si no existe, avisar y seguir sin verificar (historico).
+        # Sin hash fijado: el .sha256 junto al tarball (?query/#fragmento se
+        # recortan antes); si no esta, avisar y seguir sin verificar.
         local sha_url="${ARXY_IMAGE_URL%%\?*}"
         sha_url="${sha_url%%\#*}.sha256"
         if curl -fLs --retry 2 -o "$sha_tmp" "$sha_url" 2>/dev/null && [[ -s "$sha_tmp" ]]; then
@@ -112,9 +99,8 @@ cmd_setup() {
             msg "aviso: sin ARXY_IMAGE_SHA256 ni .sha256 en el release, omitiendo verificacion" >&2
         fi
     fi
-    # Firma minisign: segundo factor sobre sha256. Solo http(s) sin
-    # pin (.minisig publicado junto al tarball; arxy-image lo firma en CI).
-    # file:// es desarrollo local y el pin ya ancla: se omiten con aviso.
+    # Firma minisign sobre el sha256: solo http(s) sin pin; file:// se omite
+    # (desarrollo local).
     local sig_policy="${ARXY_SIGNATURE_POLICY:-optional}" sig_verified=0
     case "$sig_policy" in
         required|optional|off) : ;;
@@ -144,8 +130,8 @@ cmd_setup() {
         msg "firmas: omitidas (URL no http(s), desarrollo local)"
     fi
     printf '%s' "$sig_verified" >"$ARXY_DATA/.arxy-sig" 2>/dev/null || true
-    # Extraer a staging y validar ANTES de tocar lo instalado: setup atomico.
-    # Si algo falla aqui, la instalacion actual sigue intacta.
+    # Staging + validacion ANTES de tocar lo instalado: si algo falla aqui, la
+    # instalacion actual sigue intacta.
     local stage="$ARXY_ROOT.new.$$"
     rm -rf "${stage:?}"
     mkdir -p "$stage" || die "no pude crear staging en $stage (¿~1GB libre?)"
@@ -156,12 +142,10 @@ cmd_setup() {
     fi
     rm -f "$tmp" "$sha_tmp" "$sig_tmp"
     trap - EXIT
-    # Destinos de bind que la imagen quiza no trae (bwrap exige que existan
-    # dentro): /host y el build dir AUR. Sin esto TODO falla en bwrap.
+    # Destinos de bind que bwrap exige dentro (/host, build dir AUR).
     mkdir -p "$stage/host" "$stage$NS_BUILD"
-    # Nodos /dev estaticos para chroot pelado (sin mounts gpg no funciona:
-    # exige /dev/null+urandom). Best-effort: en hosts restringidos falla
-    # mknod y se sigue (los binds de in_chroot lo cubren si hay privilegios).
+    # Nodos /dev estaticos para chroot pelado (gpg exige null+urandom).
+    # Best-effort: si mknod falla, los binds de in_chroot los cubren.
     local dev name dtype maj min
     for dev in "null c 1 3" "zero c 1 5" "full c 1 7" "random c 1 8" "urandom c 1 9" "tty c 5 0"; do
         read -r name dtype maj min <<<"$dev"
@@ -171,10 +155,8 @@ cmd_setup() {
                 chmod 666 "$stage/dev/$name" 2>/dev/null || true
         fi
     done
-    # El usuario real debe resolverse dentro (getpwuid): Electron y varias
-    # apps abortan si su uid no esta en /etc/passwd (pear-desktop:
-    # uv_os_get_passwd ENOENT). Se copia su linea del host al staging
-    # (virgen: sin riesgo de duplicados). Solo passwd+grupo primario.
+    # getpwuid: Electron y similares abortan con uv_os_get_passwd ENOENT si el
+    # uid no esta en /etc/passwd (pear-desktop). Se copia su linea al staging.
     if [[ "$REAL_USER" != "root" ]]; then
         local _hu _hg _gid
         _hu="$(grep "^$REAL_USER:" /etc/passwd 2>/dev/null || true)"
@@ -189,16 +171,12 @@ cmd_setup() {
     fi
     _image_ok "$stage" || { rm -rf "${stage:?}"; die "imagen corrupta: sin bash/pacman/arch-release"; }
     [[ -z "$img_sha" ]] && img_sha="$ARXY_IMAGE_SHA256"
-    # version DENTRO del staging: nace con la imagen y el rename la publica
-    # junta — nunca hay root nuevo con version vieja ni al reves. El subshell
-    # contiene el override (sin save/restore); die ahi sale del subshell.
+    # version DENTRO del staging: el rename la publica junta con la imagen.
     mkdir -p "$stage/var/lib/arxy" || { rm -rf "${stage:?}"; die "no pude registrar version en el staging"; }
     ( export ARXY_VERSION_FILE="$stage/var/lib/arxy/version"
       write_version "$ARXY_IMAGE_URL" "$img_sha" ) || { rm -rf "${stage:?}"; die "no pude escribir version"; }
     data_sync "$stage" "$ARXY_DATA"
-    # rc para la shell de nivel 2: resuelve en el subsistema lo que el host
-    # no conoce (rutas horneadas; se regenera en cada setup). Antes del
-    # rename: su contenido no depende de que root este publicado.
+    # rc de la shell de nivel 2 (se regenera en cada setup).
     {
         echo "# generado por '$PROG setup' — no editar"
         echo 'command_not_found_handle() {'
@@ -227,8 +205,7 @@ cmd_setup() {
         echo '}'
     } > "$ARXY_DATA/level2-rc"
     data_sync "$ARXY_DATA"
-    # Rotacion via .old.tmp.$$ : el rename publica imagen+version juntas
-    # (atomico). Kill aqui deja .old.tmp.$$ y lo resuelve recover_staging.
+    # Rotacion via .old.tmp.$$: un kill aqui lo resuelve recover_staging.
     local old_tmp="$ARXY_ROOT.old.tmp.$$"
     rm -rf "${old_tmp:?}" 2>/dev/null || true
     if [[ -d "$ARXY_ROOT" ]]; then
@@ -243,8 +220,7 @@ cmd_setup() {
     data_sync "$ARXY_DATA"
     # Una sola verdad: el legacy fuera del root ya no se escribe ni se lee.
     [[ "$ARXY_VERSION_LEGACY" != "$ARXY_VERSION_FILE" ]] && rm -f "$ARXY_VERSION_LEGACY" 2>/dev/null || true
-    # Perfil HW persistido (caché del mismo schema; doctor calcula fresco).
-    # Antes del -Sy: describe lo instalado aunque falle la red. Nunca falla setup.
+    # Perfil HW antes del -Sy (describe lo instalado aunque falle la red).
     write_hardware_json "$(emit_hardware_json 2>/dev/null || true)"
     local tier=""
     tier="$(cpu_tier 2>/dev/null || true)"
@@ -258,7 +234,6 @@ cmd_setup() {
     msg "imagen lista en $ARXY_ROOT"
 }
 
-# Restaura la imagen anterior guardada por setup (una generacion).
 cmd_rollback() {
     [[ $# -eq 0 ]] || die "uso: $PROG rollback"
     need_root
@@ -272,11 +247,9 @@ cmd_rollback() {
     else
         mv "$ARXY_ROOT.old" "$ARXY_ROOT" || die "no pude restaurar $ARXY_ROOT.old a $ARXY_ROOT (¿permisos? rescata a mano con 'mv')"
     fi
-    # version viaja DENTRO del root: el swap la rota sola, sin
-    # copias. Si el root restaurado es del formato anterior (sin version dentro),
-    # ensure_version la regenera en el proximo uso.
-    # la atestacion .arxy-sig describe la generacion instalada por
-    # setup; tras rotar, invalidar (ausente = no verificado, nunca rancio).
+    # version viaja DENTRO del root: el swap la rota sola; si el root restaurado
+    # es del formato anterior, ensure_version la regenera. .arxy-sig se invalida
+    # al rotar (ausente = no verificado, nunca rancio).
     rm -f "$ARXY_DATA/.arxy-sig"
     msg "rollback completo: imagen anterior restaurada en $ARXY_ROOT"
 }

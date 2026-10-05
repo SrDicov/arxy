@@ -16,8 +16,8 @@ PROG="arxy"
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 
 # --- configuracion (precedencia: env > user-conf > sys-conf > defaults)
-# Los .conf son datos: CLAVE=valor, con comillas opcionales y sin expansión.
-# La lista cerrada también protege la lectura del config de usuario como root.
+# Los .conf son datos: CLAVE=valor, comillas opcionales, sin expansion. La
+# lista cerrada protege tambien la lectura del config de usuario como root.
 declare -ar CONFIG_KEYS=(
     ARXY_ROOT ARXY_IMAGE_URL ARXY_IMAGE_SHA256 ARXY_SIGNATURE_POLICY
     ARXY_LEVEL ARXY_GPG_CHECK ARXY_KEEP_PKG_CACHE ARXY_NO_AUTO_DEDUP
@@ -92,7 +92,7 @@ _config_read() { # <fichero>: asignaciones permitidas, sin eval/source
 }
 
 _restore_frozen() { # el env congelado manda sobre cualquier fichero.
-    # Debe ocurrir antes de derivar rutas para evitar estados split-brain.
+    # Antes de derivar rutas (evita estados split-brain).
     local _n
     if ((${#_frozen_val[@]})); then
         for _n in "${!_frozen_val[@]}"; do
@@ -118,8 +118,8 @@ ARXY_ARGV=("$@")
 # --- usuario real (los .desktop van a SU home aunque se use sudo/doas)
 if [[ "$(id -u)" -eq 0 ]]; then
     REAL_USER="${SUDO_USER:-${DOAS_USER:-${USER:-$(id -un)}}}"
-    # pkexec no pone SUDO_USER/DOAS_USER: el invocador viene en PKEXEC_UID
-    # (sin esto los .desktop de una sesion GUI caerian en /root).
+    # pkexec no pone SUDO_USER: el invocador viene en PKEXEC_UID (sin esto
+    # los .desktop de una sesion GUI caerian en /root).
     if [[ -z "${SUDO_USER:-}${DOAS_USER:-}" && -n "${PKEXEC_UID:-}" ]]; then
         REAL_USER="$(id -nu "$PKEXEC_UID" 2>/dev/null || echo "$REAL_USER")"
     fi
@@ -128,17 +128,16 @@ else
 fi
 REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
 [[ -z "${REAL_HOME:-}" || ! -d "$REAL_HOME" ]] && REAL_HOME="$HOME"
-# XDG explícito manda; en otro caso se usa el home del usuario real.
 REAL_APPS="${XDG_DATA_HOME:-$REAL_HOME/.local/share}/applications"
 
-# Bajo sudo/doas también se lee como datos la configuración del usuario real.
+# Bajo sudo/doas tambien se lee la config del usuario real (como datos).
 if [[ "$(id -u)" -eq 0 && "$REAL_HOME" != "$HOME" ]]; then
     _config_read "$REAL_HOME/.config/arxy/config"
     _restore_frozen
 fi
 unset _frozen_val _CONFIG_TEXT _CONFIG_VALUE
 
-# Vacío no equivale a unset: rechazarlo evita derivar rutas inesperadas.
+# Vacio no es unset: rechazarlo evita derivar rutas inesperadas.
 if [[ -z "${ARXY_ROOT:-}" ]]; then
     echo "arxy: error: ARXY_ROOT vacio (unset para usar el default)" >&2
     exit 1
@@ -147,11 +146,11 @@ if [[ "$ARXY_ROOT" != /* || "$ARXY_ROOT" == / ]]; then
     echo "arxy: error: ARXY_ROOT debe ser una ruta absoluta distinta de /" >&2
     exit 1
 fi
-# Todas las rutas derivadas nacen aquí, después de resolver configuración.
+# Todas las rutas derivadas nacen aqui, tras resolver la configuracion.
 ARXY_DATA="${ARXY_ROOT%/*}"              # /var/lib/arxy
-# La versión vive dentro del root y rota atómicamente con la imagen.
+# La version vive dentro del root y rota con la imagen (atomico).
 : "${ARXY_VERSION_FILE:=$ARXY_ROOT/var/lib/arxy/version}"
-# Ruta antigua: solo se adopta y elimina; el código nuevo no la escribe.
+# Ruta antigua: solo se adopta y elimina, el codigo nuevo no la escribe.
 : "${ARXY_VERSION_LEGACY:=$ARXY_DATA/version}"
 ARXY_BUILD="$ARXY_DATA/build"              # dir de compilacion AUR (1777)
 NS_BUILD="/arxy-build"                     # misma dir vista desde dentro
@@ -159,7 +158,6 @@ NS_BUILD="/arxy-build"                     # misma dir vista desde dentro
 LD_LINUX="$ARXY_ROOT/usr/lib/ld-linux-x86-64.so.2" # interprete ELF del subsistema
 ARXY_LIBPATH="$ARXY_ROOT/usr/lib"
 
-# --- utilidades
 msg()  { printf 'arxy: %s\n' "$*"; }
 die()  { printf 'arxy: error: %s\n' "$*" >&2; exit 1; }
 
@@ -172,7 +170,7 @@ need_cmd() {
 
 # Solo PRIV_ENV_KEYS cruza la frontera sudo/doas; el prefijo ARXY_ no basta.
 arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
-    # sudo/doas fijan el env en el hijo: sin export basta la asignacion.
+    # sudo/doas fijan el env del hijo: sin export basta la asignacion.
     local v value
     for v in "${PRIV_ENV_KEYS[@]}"; do
         [[ -v "$v" ]] || continue
@@ -183,13 +181,10 @@ arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
     done
 }
 
-# Construye una sola frontera de privilegios para sudo, doas y pkexec.
-# Sin tty (GUI/.desktop/SSH: stdin es /dev/null o pipe) un elevador con
-# password no puede pedirla; pkexec usa el dialogo del agente polkit
-# (accion org.freedesktop.policykit.exec, sin .policy propio). Si hay
-# elevador passwordless (cron/NOPASSWD/doas-nopass) se conserva aunque no
-# haya tty: los probes -n nunca preguntan. En terminal no cambia nada.
-# El modo exec reemplaza el proceso; run devuelve el estado al llamador.
+# Frontera de privilegios (sudo/doas/pkexec). Sin tty un elevador con password
+# no puede pedirla: pkexec usa el dialogo polkit (sin .policy propio). Un
+# elevador passwordless (cron/NOPASSWD) se conserva sin tty (los probes -n
+# nunca preguntan). En terminal no cambia nada. exec reemplaza el proceso.
 _root_run() { # <run|exec> <cmd...>
     local mode="$1"; shift
     local -a pass=()
@@ -214,7 +209,7 @@ _root_run() { # <run|exec> <cmd...>
 
 as_root() { _root_run run "$@"; }
 
-# Re-ejecuta todo el argv original como root (los comandos que escriben lo exigen).
+# Re-ejecuta el argv original como root (los comandos que escriben lo exigen).
 need_root() {
     [[ "$(id -u)" -eq 0 ]] && return 0
     _root_run exec "$SELF" "${ARXY_ARGV[@]}"
@@ -225,20 +220,19 @@ _image_ok() { # <dir>: valida un rootfs (instalado o en staging)
 }
 image_ok() { _image_ok "$ARXY_ROOT"; }
 
-# Lock único, no bloqueante y reentrante para toda mutación del estado.
-# Se toma después de need_root y vive hasta que termina el proceso.
+# Lock no bloqueante y reentrante; se toma tras need_root.
 data_lock() {
     [[ -n "${ARXY_LOCK_FD:-}" ]] && return 0 # ya tomado (anidado)
     # Derivar del ROOT actual evita usar un ARXY_DATA antiguo en tests.
     local lf="${ARXY_ROOT%/*}/.lock"
     mkdir -p "${ARXY_ROOT%/*}" 2>/dev/null || die "no pude crear ${ARXY_ROOT%/*} (¿permisos?)"
-    # No redirigir este exec: la redirección persistiría en toda la shell.
+    # No redirigir este exec: la redireccion persistiria en toda la shell.
     exec {ARXY_LOCK_FD}>"$lf"
     [[ -n "${ARXY_LOCK_FD:-}" ]] || die "no pude abrir lock $lf (¿permisos?)"
     flock -n "$ARXY_LOCK_FD" 2>/dev/null || die "otra operacion arxy en curso (lock $lf); reintenta cuando termine"
 }
 
-# Sin tty (scripts, pipes) pacman no puede preguntar: confirmar solo.
+# Sin tty (scripts, pipes) pacman no puede preguntar: solo --noconfirm.
 # Uso: nc_args <nombre-array>; luego "${arr[@]}".
 nc_args() {
     local -n _nc=$1

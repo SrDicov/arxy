@@ -1,10 +1,10 @@
 # --- estado persistente, recuperacion y verificacion de imagen
-# version estructurado (format 1). El plano legacy (url=/date=) se
-# acepta al leer y se migra al escribir. Sin jq: printf al emitir, grep al leer.
+# version estructurado (format 1); el plano legacy (url=/date=) se acepta al
+# leer y se migra al escribir. Sin jq: printf al emitir, grep al leer.
 data_sync() { # <paths...> : fsync best-effort; nunca falla setup
-    # sync con operandos (coreutils) vacia los filesystems que los contienen
-    # (syncfs); sin operandos o en busybox es global. Correcto en ambos
-    # casos, mas caro en el segundo. Orden de llamada: fichero -> dir.
+    # sync con operandos (coreutils) hace syncfs de sus filesystems; sin
+    # operandos o en busybox es global (correcto en ambos, mas caro).
+    # Orden de llamada: fichero -> dir.
     sync "$@" 2>/dev/null || sync 2>/dev/null || true
 }
 _newest_first() { # <prefijo> : "$prefijo"* mas reciente primero (una linea)
@@ -14,10 +14,9 @@ _newest_first() { # <prefijo> : "$prefijo"* mas reciente primero (una linea)
     done | sort -rn | cut -f2-
 }
 staging_inventory() { # huerfanos de setup/rollback: "<accion>\t<path>"; pura
-    # Una sola logica para recover_staging (aplica) y fix_probe (lista): un
-    # fix en uno se refleja en el otro. Acciones: remove | recover-root
-    # (R ausente) | replace-root (R invalido) | rotate-old (R valido).
-    # Orden: .old.tmp estuvo VIVO (staging nunca); el mas reciente gana.
+    # Una sola logica para recover_staging (aplica) y fix_probe (lista).
+    # Acciones: remove | recover-root (R ausente) | replace-root (R invalido) |
+    # rotate-old (R valido). Orden: .old.tmp estuvo VIVO, el mas reciente gana.
     local D="$ARXY_DATA" R="$ARXY_ROOT" p
     local r_exists=0 r_valid=0 filled_root=0 filled_old=0
     [[ -e "$R" ]] && r_exists=1
@@ -56,8 +55,7 @@ staging_inventory() { # huerfanos de setup/rollback: "<accion>\t<path>"; pura
     done
     for s in "$R".swap.*; do
         [[ -e "$s" ]] || continue
-        # Swap = root ex-vivo completo: nunca se borra si es lo mejor
-        # disponible; solo sobra con un root valido ya en su sitio.
+        # Swap = root ex-vivo completo: solo sobra con un root valido ya.
         if (( ! r_exists && ! filled_root )); then
             printf 'recover-root\t%s\n' "$s"; filled_root=1
         elif (( r_exists && ! r_valid && ! filled_root )); then
@@ -95,8 +93,8 @@ ensure_version() { # root valido sin version util: regenera; rc 0 siempre
         return 0
     fi
     [[ -f "$f" ]] && msg "aviso: version ilegible, regenero" >&2
-    # Sin permiso (usuario normal en root real): callar, setup como root
-    # regenera. El mkdir distingue: si el puede crear, el write puede escribir.
+    # Sin permiso (usuario normal): callar, setup como root regenera. El mkdir
+    # distingue: si el puede crear, el write puede escribir.
     mkdir -p "${f%/*}" 2>/dev/null || return 0
     write_version "${ARXY_IMAGE_URL:-}" "${ARXY_IMAGE_SHA256:-}" >/dev/null 2>&1 \
         || { msg "aviso: no pude regenerar version" >&2; return 0; }
@@ -130,9 +128,8 @@ version_field() { # <url|date> : valor (JSON o plano); rc 1 si falta
 version_line() { # "url=... date=..." (ambos formatos; vacio si falta)
     local u d
     u="$(version_field url || true)"; d="$(version_field date || true)"
-    # lectura con fichero corrupto daba campos vacios sin pista
-    # (el proximo setup lo regeneraba con aviso, pero el usuario cansado
-    # no lo veia). Avisar a stderr sin tocar stdout.
+    # lectura con fichero corrupto daba campos vacios sin pista (el proximo
+    # setup lo regeneraba con aviso, pero el usuario cansado no lo veia).
     if [[ -f "$ARXY_VERSION_FILE" && -z "$u$d" ]]; then
         msg "aviso: version ilegible, regenero en el proximo setup/install" >&2
     fi

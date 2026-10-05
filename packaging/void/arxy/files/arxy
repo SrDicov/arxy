@@ -16,8 +16,8 @@ PROG="arxy"
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 
 # --- configuracion (precedencia: env > user-conf > sys-conf > defaults)
-# Los .conf son datos: CLAVE=valor, con comillas opcionales y sin expansión.
-# La lista cerrada también protege la lectura del config de usuario como root.
+# Los .conf son datos: CLAVE=valor, comillas opcionales, sin expansion. La
+# lista cerrada protege tambien la lectura del config de usuario como root.
 declare -ar CONFIG_KEYS=(
     ARXY_ROOT ARXY_IMAGE_URL ARXY_IMAGE_SHA256 ARXY_SIGNATURE_POLICY
     ARXY_LEVEL ARXY_GPG_CHECK ARXY_KEEP_PKG_CACHE ARXY_NO_AUTO_DEDUP
@@ -92,7 +92,7 @@ _config_read() { # <fichero>: asignaciones permitidas, sin eval/source
 }
 
 _restore_frozen() { # el env congelado manda sobre cualquier fichero.
-    # Debe ocurrir antes de derivar rutas para evitar estados split-brain.
+    # Antes de derivar rutas (evita estados split-brain).
     local _n
     if ((${#_frozen_val[@]})); then
         for _n in "${!_frozen_val[@]}"; do
@@ -118,8 +118,8 @@ ARXY_ARGV=("$@")
 # --- usuario real (los .desktop van a SU home aunque se use sudo/doas)
 if [[ "$(id -u)" -eq 0 ]]; then
     REAL_USER="${SUDO_USER:-${DOAS_USER:-${USER:-$(id -un)}}}"
-    # pkexec no pone SUDO_USER/DOAS_USER: el invocador viene en PKEXEC_UID
-    # (sin esto los .desktop de una sesion GUI caerian en /root).
+    # pkexec no pone SUDO_USER: el invocador viene en PKEXEC_UID (sin esto
+    # los .desktop de una sesion GUI caerian en /root).
     if [[ -z "${SUDO_USER:-}${DOAS_USER:-}" && -n "${PKEXEC_UID:-}" ]]; then
         REAL_USER="$(id -nu "$PKEXEC_UID" 2>/dev/null || echo "$REAL_USER")"
     fi
@@ -128,17 +128,16 @@ else
 fi
 REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
 [[ -z "${REAL_HOME:-}" || ! -d "$REAL_HOME" ]] && REAL_HOME="$HOME"
-# XDG explícito manda; en otro caso se usa el home del usuario real.
 REAL_APPS="${XDG_DATA_HOME:-$REAL_HOME/.local/share}/applications"
 
-# Bajo sudo/doas también se lee como datos la configuración del usuario real.
+# Bajo sudo/doas tambien se lee la config del usuario real (como datos).
 if [[ "$(id -u)" -eq 0 && "$REAL_HOME" != "$HOME" ]]; then
     _config_read "$REAL_HOME/.config/arxy/config"
     _restore_frozen
 fi
 unset _frozen_val _CONFIG_TEXT _CONFIG_VALUE
 
-# Vacío no equivale a unset: rechazarlo evita derivar rutas inesperadas.
+# Vacio no es unset: rechazarlo evita derivar rutas inesperadas.
 if [[ -z "${ARXY_ROOT:-}" ]]; then
     echo "arxy: error: ARXY_ROOT vacio (unset para usar el default)" >&2
     exit 1
@@ -147,11 +146,11 @@ if [[ "$ARXY_ROOT" != /* || "$ARXY_ROOT" == / ]]; then
     echo "arxy: error: ARXY_ROOT debe ser una ruta absoluta distinta de /" >&2
     exit 1
 fi
-# Todas las rutas derivadas nacen aquí, después de resolver configuración.
+# Todas las rutas derivadas nacen aqui, tras resolver la configuracion.
 ARXY_DATA="${ARXY_ROOT%/*}"              # /var/lib/arxy
-# La versión vive dentro del root y rota atómicamente con la imagen.
+# La version vive dentro del root y rota con la imagen (atomico).
 : "${ARXY_VERSION_FILE:=$ARXY_ROOT/var/lib/arxy/version}"
-# Ruta antigua: solo se adopta y elimina; el código nuevo no la escribe.
+# Ruta antigua: solo se adopta y elimina, el codigo nuevo no la escribe.
 : "${ARXY_VERSION_LEGACY:=$ARXY_DATA/version}"
 ARXY_BUILD="$ARXY_DATA/build"              # dir de compilacion AUR (1777)
 NS_BUILD="/arxy-build"                     # misma dir vista desde dentro
@@ -159,7 +158,6 @@ NS_BUILD="/arxy-build"                     # misma dir vista desde dentro
 LD_LINUX="$ARXY_ROOT/usr/lib/ld-linux-x86-64.so.2" # interprete ELF del subsistema
 ARXY_LIBPATH="$ARXY_ROOT/usr/lib"
 
-# --- utilidades
 msg()  { printf 'arxy: %s\n' "$*"; }
 die()  { printf 'arxy: error: %s\n' "$*" >&2; exit 1; }
 
@@ -172,7 +170,7 @@ need_cmd() {
 
 # Solo PRIV_ENV_KEYS cruza la frontera sudo/doas; el prefijo ARXY_ no basta.
 arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
-    # sudo/doas fijan el env en el hijo: sin export basta la asignacion.
+    # sudo/doas fijan el env del hijo: sin export basta la asignacion.
     local v value
     for v in "${PRIV_ENV_KEYS[@]}"; do
         [[ -v "$v" ]] || continue
@@ -183,13 +181,10 @@ arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
     done
 }
 
-# Construye una sola frontera de privilegios para sudo, doas y pkexec.
-# Sin tty (GUI/.desktop/SSH: stdin es /dev/null o pipe) un elevador con
-# password no puede pedirla; pkexec usa el dialogo del agente polkit
-# (accion org.freedesktop.policykit.exec, sin .policy propio). Si hay
-# elevador passwordless (cron/NOPASSWD/doas-nopass) se conserva aunque no
-# haya tty: los probes -n nunca preguntan. En terminal no cambia nada.
-# El modo exec reemplaza el proceso; run devuelve el estado al llamador.
+# Frontera de privilegios (sudo/doas/pkexec). Sin tty un elevador con password
+# no puede pedirla: pkexec usa el dialogo polkit (sin .policy propio). Un
+# elevador passwordless (cron/NOPASSWD) se conserva sin tty (los probes -n
+# nunca preguntan). En terminal no cambia nada. exec reemplaza el proceso.
 _root_run() { # <run|exec> <cmd...>
     local mode="$1"; shift
     local -a pass=()
@@ -214,7 +209,7 @@ _root_run() { # <run|exec> <cmd...>
 
 as_root() { _root_run run "$@"; }
 
-# Re-ejecuta todo el argv original como root (los comandos que escriben lo exigen).
+# Re-ejecuta el argv original como root (los comandos que escriben lo exigen).
 need_root() {
     [[ "$(id -u)" -eq 0 ]] && return 0
     _root_run exec "$SELF" "${ARXY_ARGV[@]}"
@@ -225,20 +220,19 @@ _image_ok() { # <dir>: valida un rootfs (instalado o en staging)
 }
 image_ok() { _image_ok "$ARXY_ROOT"; }
 
-# Lock único, no bloqueante y reentrante para toda mutación del estado.
-# Se toma después de need_root y vive hasta que termina el proceso.
+# Lock no bloqueante y reentrante; se toma tras need_root.
 data_lock() {
     [[ -n "${ARXY_LOCK_FD:-}" ]] && return 0 # ya tomado (anidado)
     # Derivar del ROOT actual evita usar un ARXY_DATA antiguo en tests.
     local lf="${ARXY_ROOT%/*}/.lock"
     mkdir -p "${ARXY_ROOT%/*}" 2>/dev/null || die "no pude crear ${ARXY_ROOT%/*} (¿permisos?)"
-    # No redirigir este exec: la redirección persistiría en toda la shell.
+    # No redirigir este exec: la redireccion persistiria en toda la shell.
     exec {ARXY_LOCK_FD}>"$lf"
     [[ -n "${ARXY_LOCK_FD:-}" ]] || die "no pude abrir lock $lf (¿permisos?)"
     flock -n "$ARXY_LOCK_FD" 2>/dev/null || die "otra operacion arxy en curso (lock $lf); reintenta cuando termine"
 }
 
-# Sin tty (scripts, pipes) pacman no puede preguntar: confirmar solo.
+# Sin tty (scripts, pipes) pacman no puede preguntar: solo --noconfirm.
 # Uso: nc_args <nombre-array>; luego "${arr[@]}".
 nc_args() {
     local -n _nc=$1
@@ -304,7 +298,6 @@ bwrap_base() {
     [[ -f /etc/localtime ]] && printf '%s\n' --ro-bind-try /etc/localtime /etc/localtime
 }
 
-# Ejecuta dentro sin reemplazar el proceso; el llamador delimita el comando.
 in_bwrap() {
     local -a b
     mapfile -t b < <(bwrap_base)
@@ -313,7 +306,7 @@ in_bwrap() {
         "$@"
 }
 
-# Como in_bwrap, pero hace exec y añade NVIDIA/bridge cuando están disponibles.
+# Como in_bwrap, pero hace exec y añade NVIDIA/bridge si estan disponibles.
 # Los ICD se pasan por FD para evitar temporales compartidos.
 run_in() {
     local -a b
@@ -321,8 +314,8 @@ run_in() {
     local _nvm _nvi
     _nvm="$(nvidia_mounts 2>/dev/null || true)"
     _nvi="$(nvidia_icds 2>/dev/null || true)"
-    # musl: el userspace grafico del host no sirve en el rootfs glibc;
-    # fuera libs+ICDs (devices ya vienen con --dev-bind /dev de la base).
+    # musl: el userspace grafico del host no sirve en el rootfs glibc; fuera
+    # libs+ICDs (los devices ya vienen con --dev-bind /dev de la base).
     if [[ "$(detect_libc 2>/dev/null || true)" == musl ]]; then _nvm=""; _nvi=""; fi
     if [[ -n "$_nvm$_nvi" ]]; then
         # bwrap procesa en orden: crear destinos antes de bindear bibliotecas.
@@ -356,8 +349,7 @@ run_in() {
             b+=(--ro-bind-data "$_nfd" "$_d/$(basename "$_ip")")
         done <<<"$_nvi"
     fi
-    # El bridge es opcional y puede no estar cargado en pruebas unitarias.
-    # bridge_active_socket concentra fallback, autoarranque y validación.
+    # El bridge es opcional (puede no estar cargado en tests).
     local _bsock="" _btok=""
     if command -v bridge_active_socket >/dev/null 2>&1; then
         _bsock="$(bridge_active_socket || true)"
@@ -390,8 +382,7 @@ run_pacman() {
     fi
 }
 
-# --- niveles de ejecucion
-# Nivel 1 usa bwrap; nivel 2 usa ld-linux para run y chroot para mutaciones.
+# --- niveles: 1 = bwrap; 2 = ld-linux para run y chroot para mutaciones.
 level() { # deja el nivel en _ARXY_LEVEL (memoizado por proceso)
     [[ -n "${_ARXY_LEVEL:-}" ]] && return 0
     if [[ "${ARXY_LEVEL:-}" == 1 || "${ARXY_LEVEL:-}" == 2 ]]; then
@@ -424,7 +415,7 @@ level2_env() {
     done
 }
 
-# in_sys <ruta-absoluta-del-subsistema> [args...] : ejecuta en el nivel activo.
+# in_sys <ruta-absoluta> [args...] : ejecuta en el nivel activo.
 in_sys() {
     level
     local bin="$1"; shift
@@ -437,7 +428,7 @@ in_sys() {
     fi
 }
 
-# Chroot de nivel 2 con mounts mínimos y limpieza en orden inverso.
+# Chroot de nivel 2 (mounts minimos, limpieza en orden inverso).
 in_chroot() {
     local dst mounted=() rc=0 resolv_bak="" resolv_created=""
     for dst in "$ARXY_ROOT/proc" "$ARXY_ROOT/sys" "$ARXY_ROOT/dev"; do
@@ -466,7 +457,7 @@ in_chroot() {
         mount --bind "$ARXY_BUILD" "$ARXY_ROOT$NS_BUILD" 2>/dev/null && \
             mounted+=("$ARXY_ROOT$NS_BUILD")
     fi
-    # Entorno limpio dentro: nada del host (un LD_LIBRARY_PATH del host seria fatal).
+    # Entorno limpio dentro: un LD_LIBRARY_PATH del host seria fatal.
     chroot "$ARXY_ROOT" /usr/bin/env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/bin" \
         LC_ALL=C HOME=/root "$@" || rc=$?
     local d
@@ -485,9 +476,8 @@ in_chroot() {
 pacman_tmpconf() { # [ro|mut] [host] : ruta por stdout; 1 = sin temporal, 2 = transform fallo
     local _t _tpl
     if [[ "${2:-}" == host ]]; then
-        # L1 bindea /tmp del host sobre el del root: un temporal bajo
-        # $ARXY_ROOT/tmp no seria visible dentro. Va en /tmp del host y
-        # se cita como /tmp/<base> (misma ruta dentro y fuera).
+        # L1 bindea el /tmp del host sobre el del root: un temporal bajo
+        # $ARXY_ROOT/tmp no seria visible dentro (se cita como /tmp/<base>).
         _tpl="/tmp/pacman-arxy.XXXXXX"
     else
         mkdir -p "$ARXY_ROOT/tmp" 2>/dev/null || true
@@ -500,10 +490,10 @@ pacman_tmpconf() { # [ro|mut] [host] : ruta por stdout; 1 = sin temporal, 2 = tr
     fi
     _t="$(mktemp "$_tpl")" || return 1 # busybox exige plantilla TERMINADA en XXXXXX (.conf no vale)
     if [[ "${1:-}" == ro ]]; then
-        # Lecturas sin namespace: reescribir Include absolutos hacia el rootfs.
+        # Lecturas sin namespace: los Include absolutos apuntan al rootfs.
         sed "s|/etc/pacman.d/|$ARXY_ROOT/etc/pacman.d/|g" "$ARXY_ROOT/etc/pacman.conf" > "$_t" 2>/dev/null || { rm -f "$_t"; return 2; }
     else
-        # Escrituras en chroot: CheckSpace no puede resolver / ahi dentro.
+        # Escrituras en chroot: CheckSpace no resuelve / dentro.
         grep -v '^[[:space:]]*CheckSpace' "$ARXY_ROOT/etc/pacman.conf" > "$_t" || { rm -f "$_t"; return 2; }
     fi
     printf '%s' "$_t"
@@ -522,11 +512,10 @@ pacman_mut() {
         rm -f "$tmpconf" || true
         return $rc
     else
-        # Sin CheckSpace: los ro-bind de L1 (/etc/hosts, resolv.conf)
-        # falsean su contabilidad cuando `filesystem` entra en la
-        # transaccion ("not enough free disk space" con 167G libres;
-        # muerte probada en la migracion CachyOS). Igual que en nivel 2:
-        # conf temporal sin CheckSpace.
+        # Sin CheckSpace: los ro-bind de L1 (/etc/hosts, resolv.conf) falsean
+        # su contabilidad cuando `filesystem` entra en la transaccion
+        # ("not enough free disk space" con 167G libres; visto en la
+        # migracion CachyOS). Igual que en nivel 2.
         local tmpconf _pcc=0
         tmpconf="$(pacman_tmpconf mut host)"; _pcc=$?
         (( _pcc == 1 )) && die "no pude crear conf temporal (¿espacio en /tmp?)"
@@ -538,19 +527,19 @@ pacman_mut() {
     fi
 }
 
-# Si PWD no es visible dentro, entrar via /host (siempre bindeado).
-# En nivel 2 no hay namespace: el PWD del host es directamente valido.
+# Si PWD no es visible dentro, entrar via /host. En nivel 2 no hay namespace:
+# el PWD del host es directamente valido.
 inside_dir() {
     [[ "$_ARXY_LEVEL" == 2 ]] && { echo "$PWD"; return 0; }
     if host_path_visible "$PWD"; then echo "$PWD"; else echo "/host$PWD"; fi
 }
 # --- estado persistente, recuperacion y verificacion de imagen
-# version estructurado (format 1). El plano legacy (url=/date=) se
-# acepta al leer y se migra al escribir. Sin jq: printf al emitir, grep al leer.
+# version estructurado (format 1); el plano legacy (url=/date=) se acepta al
+# leer y se migra al escribir. Sin jq: printf al emitir, grep al leer.
 data_sync() { # <paths...> : fsync best-effort; nunca falla setup
-    # sync con operandos (coreutils) vacia los filesystems que los contienen
-    # (syncfs); sin operandos o en busybox es global. Correcto en ambos
-    # casos, mas caro en el segundo. Orden de llamada: fichero -> dir.
+    # sync con operandos (coreutils) hace syncfs de sus filesystems; sin
+    # operandos o en busybox es global (correcto en ambos, mas caro).
+    # Orden de llamada: fichero -> dir.
     sync "$@" 2>/dev/null || sync 2>/dev/null || true
 }
 _newest_first() { # <prefijo> : "$prefijo"* mas reciente primero (una linea)
@@ -560,10 +549,9 @@ _newest_first() { # <prefijo> : "$prefijo"* mas reciente primero (una linea)
     done | sort -rn | cut -f2-
 }
 staging_inventory() { # huerfanos de setup/rollback: "<accion>\t<path>"; pura
-    # Una sola logica para recover_staging (aplica) y fix_probe (lista): un
-    # fix en uno se refleja en el otro. Acciones: remove | recover-root
-    # (R ausente) | replace-root (R invalido) | rotate-old (R valido).
-    # Orden: .old.tmp estuvo VIVO (staging nunca); el mas reciente gana.
+    # Una sola logica para recover_staging (aplica) y fix_probe (lista).
+    # Acciones: remove | recover-root (R ausente) | replace-root (R invalido) |
+    # rotate-old (R valido). Orden: .old.tmp estuvo VIVO, el mas reciente gana.
     local D="$ARXY_DATA" R="$ARXY_ROOT" p
     local r_exists=0 r_valid=0 filled_root=0 filled_old=0
     [[ -e "$R" ]] && r_exists=1
@@ -602,8 +590,7 @@ staging_inventory() { # huerfanos de setup/rollback: "<accion>\t<path>"; pura
     done
     for s in "$R".swap.*; do
         [[ -e "$s" ]] || continue
-        # Swap = root ex-vivo completo: nunca se borra si es lo mejor
-        # disponible; solo sobra con un root valido ya en su sitio.
+        # Swap = root ex-vivo completo: solo sobra con un root valido ya.
         if (( ! r_exists && ! filled_root )); then
             printf 'recover-root\t%s\n' "$s"; filled_root=1
         elif (( r_exists && ! r_valid && ! filled_root )); then
@@ -641,8 +628,8 @@ ensure_version() { # root valido sin version util: regenera; rc 0 siempre
         return 0
     fi
     [[ -f "$f" ]] && msg "aviso: version ilegible, regenero" >&2
-    # Sin permiso (usuario normal en root real): callar, setup como root
-    # regenera. El mkdir distingue: si el puede crear, el write puede escribir.
+    # Sin permiso (usuario normal): callar, setup como root regenera. El mkdir
+    # distingue: si el puede crear, el write puede escribir.
     mkdir -p "${f%/*}" 2>/dev/null || return 0
     write_version "${ARXY_IMAGE_URL:-}" "${ARXY_IMAGE_SHA256:-}" >/dev/null 2>&1 \
         || { msg "aviso: no pude regenerar version" >&2; return 0; }
@@ -676,9 +663,8 @@ version_field() { # <url|date> : valor (JSON o plano); rc 1 si falta
 version_line() { # "url=... date=..." (ambos formatos; vacio si falta)
     local u d
     u="$(version_field url || true)"; d="$(version_field date || true)"
-    # lectura con fichero corrupto daba campos vacios sin pista
-    # (el proximo setup lo regeneraba con aviso, pero el usuario cansado
-    # no lo veia). Avisar a stderr sin tocar stdout.
+    # lectura con fichero corrupto daba campos vacios sin pista (el proximo
+    # setup lo regeneraba con aviso, pero el usuario cansado no lo veia).
     if [[ -f "$ARXY_VERSION_FILE" && -z "$u$d" ]]; then
         msg "aviso: version ilegible, regenero en el proximo setup/install" >&2
     fi
@@ -744,17 +730,12 @@ sig_check_compat() { # die si pin + required (fail closed: required exige firma)
 }
 # --- setup y rollback atomicos
 # Invariante: SIGKILL en cualquier punto deja el sistema recuperable en la
-# siguiente invocacion (ver recover_staging). Orden: descarga -> fsync -> sha
-# -> staging -> fsync -> version DENTRO del staging -> fsync -> rotacion via
-# .old.tmp.$$ -> rename -> fsync -> rotar .old -> fsync. Red (-Sy) al final.
+# siguiente invocacion (recover_staging); la red (-Sy) va al final.
 # --- repos CachyOS por microarquitectura (solo si la imagen los trae)
-# Contrato con arxy-image: cachyos-keyring instalado + mirrorlists en
-# /etc/pacman.d/ + stanzas comentadas (#[cachyos*]) en pacman.conf.
-# Sin marker: repos base, sin tocar nada. pacman.conf vive DENTRO del
-# root: rollback lo restaura solo, sin backup extra. [cachyos] trae el
-# pacman forkeado (acepta x86_64_v3/v4; el stock muere con "does not
-# have a valid architecture"): la migracion lo instala tras el -Syy,
-# antes del -Syu, y fija Architecture = auto al activar.
+# Contrato con arxy-image: cachyos-keyring + mirrorlists + stanzas #[cachyos*]
+# comentadas. Sin marker: repos base. pacman.conf vive DENTRO del root.
+# [cachyos] trae pacman forkeado (acepta x86_64_v3/v4; el stock muere con
+# "does not have a valid architecture"): va tras el -Syy y antes del -Syu.
 cachy_usable() { # 0 si la imagen trae keyring + mirrorlist base
     [[ -f "$ARXY_ROOT/etc/pacman.d/cachyos-mirrorlist" ]] || return 1
     run_pacman -Qq cachyos-keyring >/dev/null 2>&1
@@ -770,9 +751,7 @@ cachy_activate() { # <v3|v4|znver4> : activa ese tier + [cachyos]; 1 si la image
     [[ -f "$conf" ]] || return 1
     grep -q 'cachyos' "$conf" 2>/dev/null || return 1
     [[ -f "$ARXY_ROOT/etc/pacman.d/$ml" ]] || return 1
-    # Neutraliza tiers previos y activa el que toca (idempotente).
-    # Architecture = auto: el stock solo acepta x86_64 y los tiers sirven
-    # x86_64_v3/v4 (la imagen puede traerlo pineado; sin auto el -Syu muere).
+    # Architecture = auto: el stock solo acepta x86_64 y los tiers v3/v4 no.
     sed -i -E 's@^\[(cachyos-(core-|extra-)?(v3|v4|znver4))\]@#[\1]@' "$conf" \
     && sed -i -E 's@^Include = /etc/pacman\.d/(cachyos-v3-mirrorlist|cachyos-v4-mirrorlist)@#Include = /etc/pacman.d/\1@' "$conf" \
     && sed -i -E "s@^#(\[(cachyos(-${tier}|-core-${tier}|-extra-${tier})?)\])@\1@" "$conf" \
@@ -791,10 +770,8 @@ cachy_active_tier() { # v3|v4|znver4 del pacman.conf activo (rc 1 si base)
 }
 cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> reinstalar explicitos
     local tier="$1"
-    # El -Syu debe correr con el pacman de [cachyos] (parcheado: acepta
-    # x86_64_v3/v4); con el stock muere "does not have a valid
-    # architecture" (visto en setup real). Pin de repo: el de [core] no
-    # sirve. Explicitos al final: mismo ver-rel no subiria solo al tier.
+    # -Syu con el pacman de [cachyos] (el stock muere con x86_64_v3, visto en
+    # setup real). Explicitos al final: el mismo ver-rel no sube solo al tier.
     msg "microarquitectura $tier: activando repos CachyOS..."
     cachy_activate "$tier" || die "la imagen trae CachyOS pero no pude activar el tier $tier"
     pacman_mut -Syy || die "fallo 'pacman -Syy' en $ARXY_ROOT (¿red o DNS? reintenta '$PROG setup' o revisa '$PROG doctor')"
@@ -804,9 +781,8 @@ cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> rein
     pacman_mut -Syu "${nc[@]}" || die "fallo 'pacman -Syu' en $ARXY_ROOT (¿red o lock? mira el error de arriba)"
     local -a re=() mig=()
     mapfile -t re < <(run_pacman -Qqn 2>/dev/null || true)
-    # Respeta el hold de la mini (IgnorePkg=mesa): reinstalarlo desde el
-    # tier traeria el paquete full y pregunta en headless (muerte sin
-    # tty). gpu-* lo levanta a pedido (ver cmd_install).
+    # Respeta el hold IgnorePkg=mesa: el tier lo traeria full y en headless
+    # pregunta sin tty (muerte). gpu-* lo levanta a pedido (ver cmd_install).
     local hold p
     hold=" $(sed -n 's/^IgnorePkg[[:space:]]*=[[:space:]]*//p' "$ARXY_ROOT/etc/pacman.conf" | tr '\n' ' ') "
     for p in ${re[@]+"${re[@]}"}; do [[ "$hold" == *" $p "* ]] || mig+=("$p"); done
@@ -829,8 +805,7 @@ cmd_setup() {
     tmp="$(mktemp "$ARXY_DATA/.image.partial.XXXXXX")" || die "no pude crear temporal en $ARXY_DATA"
     sha_tmp="$(mktemp "$ARXY_DATA/.arxy-sha.XXXXXX")" || die "no pude crear temporal en $ARXY_DATA"
     sig_tmp="$(mktemp "$ARXY_DATA/.arxy-sig.XXXXXX")" || die "no pude crear temporal en $ARXY_DATA"
-    # este trap EXIT no guarda/restaura el del llamador a proposito
-    # (cmd_setup es toplevel/subshell: no hay trap previo que preservar).
+    # Este trap EXIT no restaura el del llamador a proposito (cmd_setup es toplevel).
     # shellcheck disable=SC2064
     trap "rm -f '$tmp' '$sha_tmp' '$sig_tmp'" EXIT
     msg "descargando imagen..."
@@ -839,10 +814,8 @@ cmd_setup() {
     if [[ -n "$ARXY_IMAGE_SHA256" ]]; then
         [[ "$(sha256sum <"$tmp" | awk '{print $1}')" == "$ARXY_IMAGE_SHA256" ]] || die "sha256 no coincide, abortando (¿descarga truncada? reintenta o revisa ARXY_IMAGE_SHA256)"
     else
-        # Sin hash fijado: intentar el .sha256 publicado junto al tarball
-        # en el release (arxy-image lo sube siempre). La URL puede traer
-        # ?query/#fragmento: se recortan antes de añadir .sha256.
-        # Si no existe, avisar y seguir sin verificar (historico).
+        # Sin hash fijado: el .sha256 junto al tarball (?query/#fragmento se
+        # recortan antes); si no esta, avisar y seguir sin verificar.
         local sha_url="${ARXY_IMAGE_URL%%\?*}"
         sha_url="${sha_url%%\#*}.sha256"
         if curl -fLs --retry 2 -o "$sha_tmp" "$sha_url" 2>/dev/null && [[ -s "$sha_tmp" ]]; then
@@ -856,9 +829,8 @@ cmd_setup() {
             msg "aviso: sin ARXY_IMAGE_SHA256 ni .sha256 en el release, omitiendo verificacion" >&2
         fi
     fi
-    # Firma minisign: segundo factor sobre sha256. Solo http(s) sin
-    # pin (.minisig publicado junto al tarball; arxy-image lo firma en CI).
-    # file:// es desarrollo local y el pin ya ancla: se omiten con aviso.
+    # Firma minisign sobre el sha256: solo http(s) sin pin; file:// se omite
+    # (desarrollo local).
     local sig_policy="${ARXY_SIGNATURE_POLICY:-optional}" sig_verified=0
     case "$sig_policy" in
         required|optional|off) : ;;
@@ -888,8 +860,8 @@ cmd_setup() {
         msg "firmas: omitidas (URL no http(s), desarrollo local)"
     fi
     printf '%s' "$sig_verified" >"$ARXY_DATA/.arxy-sig" 2>/dev/null || true
-    # Extraer a staging y validar ANTES de tocar lo instalado: setup atomico.
-    # Si algo falla aqui, la instalacion actual sigue intacta.
+    # Staging + validacion ANTES de tocar lo instalado: si algo falla aqui, la
+    # instalacion actual sigue intacta.
     local stage="$ARXY_ROOT.new.$$"
     rm -rf "${stage:?}"
     mkdir -p "$stage" || die "no pude crear staging en $stage (¿~1GB libre?)"
@@ -900,12 +872,10 @@ cmd_setup() {
     fi
     rm -f "$tmp" "$sha_tmp" "$sig_tmp"
     trap - EXIT
-    # Destinos de bind que la imagen quiza no trae (bwrap exige que existan
-    # dentro): /host y el build dir AUR. Sin esto TODO falla en bwrap.
+    # Destinos de bind que bwrap exige dentro (/host, build dir AUR).
     mkdir -p "$stage/host" "$stage$NS_BUILD"
-    # Nodos /dev estaticos para chroot pelado (sin mounts gpg no funciona:
-    # exige /dev/null+urandom). Best-effort: en hosts restringidos falla
-    # mknod y se sigue (los binds de in_chroot lo cubren si hay privilegios).
+    # Nodos /dev estaticos para chroot pelado (gpg exige null+urandom).
+    # Best-effort: si mknod falla, los binds de in_chroot los cubren.
     local dev name dtype maj min
     for dev in "null c 1 3" "zero c 1 5" "full c 1 7" "random c 1 8" "urandom c 1 9" "tty c 5 0"; do
         read -r name dtype maj min <<<"$dev"
@@ -915,10 +885,8 @@ cmd_setup() {
                 chmod 666 "$stage/dev/$name" 2>/dev/null || true
         fi
     done
-    # El usuario real debe resolverse dentro (getpwuid): Electron y varias
-    # apps abortan si su uid no esta en /etc/passwd (pear-desktop:
-    # uv_os_get_passwd ENOENT). Se copia su linea del host al staging
-    # (virgen: sin riesgo de duplicados). Solo passwd+grupo primario.
+    # getpwuid: Electron y similares abortan con uv_os_get_passwd ENOENT si el
+    # uid no esta en /etc/passwd (pear-desktop). Se copia su linea al staging.
     if [[ "$REAL_USER" != "root" ]]; then
         local _hu _hg _gid
         _hu="$(grep "^$REAL_USER:" /etc/passwd 2>/dev/null || true)"
@@ -933,16 +901,12 @@ cmd_setup() {
     fi
     _image_ok "$stage" || { rm -rf "${stage:?}"; die "imagen corrupta: sin bash/pacman/arch-release"; }
     [[ -z "$img_sha" ]] && img_sha="$ARXY_IMAGE_SHA256"
-    # version DENTRO del staging: nace con la imagen y el rename la publica
-    # junta — nunca hay root nuevo con version vieja ni al reves. El subshell
-    # contiene el override (sin save/restore); die ahi sale del subshell.
+    # version DENTRO del staging: el rename la publica junta con la imagen.
     mkdir -p "$stage/var/lib/arxy" || { rm -rf "${stage:?}"; die "no pude registrar version en el staging"; }
     ( export ARXY_VERSION_FILE="$stage/var/lib/arxy/version"
       write_version "$ARXY_IMAGE_URL" "$img_sha" ) || { rm -rf "${stage:?}"; die "no pude escribir version"; }
     data_sync "$stage" "$ARXY_DATA"
-    # rc para la shell de nivel 2: resuelve en el subsistema lo que el host
-    # no conoce (rutas horneadas; se regenera en cada setup). Antes del
-    # rename: su contenido no depende de que root este publicado.
+    # rc de la shell de nivel 2 (se regenera en cada setup).
     {
         echo "# generado por '$PROG setup' — no editar"
         echo 'command_not_found_handle() {'
@@ -971,8 +935,7 @@ cmd_setup() {
         echo '}'
     } > "$ARXY_DATA/level2-rc"
     data_sync "$ARXY_DATA"
-    # Rotacion via .old.tmp.$$ : el rename publica imagen+version juntas
-    # (atomico). Kill aqui deja .old.tmp.$$ y lo resuelve recover_staging.
+    # Rotacion via .old.tmp.$$: un kill aqui lo resuelve recover_staging.
     local old_tmp="$ARXY_ROOT.old.tmp.$$"
     rm -rf "${old_tmp:?}" 2>/dev/null || true
     if [[ -d "$ARXY_ROOT" ]]; then
@@ -987,8 +950,7 @@ cmd_setup() {
     data_sync "$ARXY_DATA"
     # Una sola verdad: el legacy fuera del root ya no se escribe ni se lee.
     [[ "$ARXY_VERSION_LEGACY" != "$ARXY_VERSION_FILE" ]] && rm -f "$ARXY_VERSION_LEGACY" 2>/dev/null || true
-    # Perfil HW persistido (caché del mismo schema; doctor calcula fresco).
-    # Antes del -Sy: describe lo instalado aunque falle la red. Nunca falla setup.
+    # Perfil HW antes del -Sy (describe lo instalado aunque falle la red).
     write_hardware_json "$(emit_hardware_json 2>/dev/null || true)"
     local tier=""
     tier="$(cpu_tier 2>/dev/null || true)"
@@ -1002,7 +964,6 @@ cmd_setup() {
     msg "imagen lista en $ARXY_ROOT"
 }
 
-# Restaura la imagen anterior guardada por setup (una generacion).
 cmd_rollback() {
     [[ $# -eq 0 ]] || die "uso: $PROG rollback"
     need_root
@@ -1016,11 +977,9 @@ cmd_rollback() {
     else
         mv "$ARXY_ROOT.old" "$ARXY_ROOT" || die "no pude restaurar $ARXY_ROOT.old a $ARXY_ROOT (¿permisos? rescata a mano con 'mv')"
     fi
-    # version viaja DENTRO del root: el swap la rota sola, sin
-    # copias. Si el root restaurado es del formato anterior (sin version dentro),
-    # ensure_version la regenera en el proximo uso.
-    # la atestacion .arxy-sig describe la generacion instalada por
-    # setup; tras rotar, invalidar (ausente = no verificado, nunca rancio).
+    # version viaja DENTRO del root: el swap la rota sola; si el root restaurado
+    # es del formato anterior, ensure_version la regenera. .arxy-sig se invalida
+    # al rotar (ausente = no verificado, nunca rancio).
     rm -f "$ARXY_DATA/.arxy-sig"
     msg "rollback completo: imagen anterior restaurada en $ARXY_ROOT"
 }
@@ -1031,9 +990,9 @@ _gc_bytes() { # <path> : bytes en disco (0 si falta)
     echo "${b:-0}"
 }
 
-# Limpieza con JSON: informa siempre (exit 0); --apply purga.
-# root.old VALIDO exige prompt tty (puede resucitarse) salvo --yes;
-# root.old CORRUPTO se purga sin preguntar (no hay nada que recuperar).
+# Limpieza con JSON: informa siempre (exit 0); --apply purga. root.old VALIDO
+# exige prompt tty (puede resucitarse) salvo --yes; root.old CORRUPTO se purga
+# sin preguntar (no hay nada que recuperar).
 cmd_gc() { # [--json] [--apply [--yes]]
     local use_json="" apply="" yes="" a
     for a in "$@"; do
@@ -1082,8 +1041,8 @@ cmd_gc() { # [--json] [--apply [--yes]]
         [[ -d "$old" ]] && rm -rf "${old:?}" 2>/dev/null || true
         rm -f "$pkgdir"/* 2>/dev/null || true
         rm -rf "${ARXY_BUILD:?}" 2>/dev/null || true
-        # gc --apply garantiza ARXY_BUILD existente (1777, como setup): el
-        # siguiente build no depende de que setup haya corrido antes.
+        # gc --apply garantiza ARXY_BUILD (1777, como setup): el siguiente
+        # build no depende de que setup haya corrido antes.
         install -d -m1777 "$ARXY_BUILD" 2>/dev/null || true
         local post s2=0 _acc
         post=$(( $(_gc_bytes "$old") + $(_gc_bytes "$pkgdir") + $(_gc_bytes "$ARXY_BUILD") ))
@@ -1127,20 +1086,16 @@ cmd_gc() { # [--json] [--apply [--yes]]
     return 0
 }
 # --- instalacion / remocion / mantenimiento (corren como root)
-# Limpia los .pkg descargados tras operar (cero cache prolongada).
-# Best-effort y silencioso; ARXY_KEEP_PKG_CACHE=1 la conserva.
 clean_pkg_cache() {
     [[ -n "${ARXY_KEEP_PKG_CACHE:-}" ]] && return 0
     rm -f "$ARXY_ROOT"/var/cache/pacman/pkg/* 2>/dev/null || true
 }
 
-# Stack GL completo (mesa oficial + LLVM) sobre mesa-mini, para GPUs AMD
-# (radeonsi) o NVIDIA (nouveau) que lo exigen. Solo para quien lo necesita
-# (+~170MB): el default ligero no cambia. NVIDIA propietaria queda fuera a
-# proposito (exige match exacto con el modulo del host): usa el driver del host.
+# Stack GL completo (mesa + LLVM) sobre mesa-mini, para AMD (radeonsi) o
+# NVIDIA (nouveau); solo quien lo necesita (+~170MB). La propietaria queda
+# fuera: exige match exacto con el modulo del host.
 cmd_gpu_stack() { # <gpu-amd|gpu-nvidia>
-    # Quitar el hold de la imagen (sin match = ya quitado: idempotente).
-    # Sin pacman.conf no hay nada que stackear: aviso (no silencio) y rc 0.
+    # Sin pacman.conf: aviso y rc 0 (sin match = hold ya quitado, idempotente).
     if [[ ! -f "$ARXY_ROOT/etc/pacman.conf" ]]; then
         msg "aviso: sin pacman.conf en $ARXY_ROOT, omito gpu-stack" >&2; return 0
     fi
@@ -1156,10 +1111,9 @@ cmd_gpu_stack() { # <gpu-amd|gpu-nvidia>
     msg "gpu: stack completo instalado (${1:-})"
 }
 
-# --- meta-paquete gaming: rewrite a dependencias reales (no existe en AUR
-# como paquete; los PKGBUILDs de packaging/aur/ son drafts para publicar).
-# gpu_stack_pkgs() (doctor --fix) = minimo Vulkan; arxy_gaming_pkgs() =
-# gaming completo. Distintas a proposito: no unificar.
+# --- meta-paquete gaming: rewrite a dependencias reales (los PKGBUILDs de
+# packaging/aur/ son drafts). gpu_stack_pkgs() (doctor --fix) = minimo Vulkan
+# y arxy_gaming_pkgs() = gaming completo: distintas a proposito, no unificar.
 arxy_gaming_vendor() { # nvidia|amd|intel ("" + rc 1 = sin GPU decidible)
     local v dri
     v="$(detect_gpu || true)"
@@ -1171,7 +1125,7 @@ arxy_gaming_vendor() { # nvidia|amd|intel ("" + rc 1 = sin GPU decidible)
         amd) echo amd; return 0 ;;
         *)
             # Sin discreta con dri expuesto se asume Intel (la iGPU no
-            # reporta vendor a drm; mismo criterio que hardware.json).
+            # reporta vendor a drm; criterio de hardware.json).
             dri="$(detect_dev_nodes 2>/dev/null | grep -E '/(card[0-9]+|renderD[0-9]+)$' || true)"
             [[ -n "$dri" ]] && { echo intel; return 0; }
             return 1 ;;
@@ -1180,7 +1134,7 @@ arxy_gaming_vendor() { # nvidia|amd|intel ("" + rc 1 = sin GPU decidible)
 
 arxy_gaming_pkgs() { # <vendor> : un paquete por linea (gaming completo)
     local v="$1" ver
-    # Lista canonica en bash (los PKGBUILDs la espejan para publicar).
+    # Lista canonica en bash (los PKGBUILDs la espejan).
     # libva-*/intel-media-driver fuera: decode de video, no rendering.
     printf '%s\n' steam wine vkd3d gamescope mangohud vulkan-icd-loader lib32-vulkan-icd-loader
     case "$v" in
@@ -1224,18 +1178,16 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
     fi
     local -a off=() aur=() p
     for p in "${pkgs[@]}"; do case "$p" in *-bin) aur+=("$p") ;; *) off+=("$p") ;; esac; done
-    # en L2 la parte AUR moriria tras aplicar la oficial (medio-
-    # estado: multilib+mesa instalados, AUR pendiente). Fallar antes de
-    # tocar nada (el dry-run ya volvio arriba).
+    # En L2 la parte AUR moriria tras aplicar la oficial (medio-estado):
+    # fallar antes de tocar nada (el dry-run ya volvio arriba).
     level 2>/dev/null || true
     if [[ "${_ARXY_LEVEL:-}" == 2 && "${#aur[@]}" -gt 0 ]]; then
         die "arxy-gaming exige nivel 1 para su parte AUR (estas en nivel 2; nada aplicado)"
     fi
     # makepkg prohibe root: la parte AUR se compila como usuario ANTES de
-    # elevar (tras need_root ya es tarde). Con ARXY_GAMING_AUR_DONE la
-    # re-ejecucion elevada la salta. Root-directo sin usuario que la haga:
-    # se instala lo oficial y se dice como completar (mismo limite que
-    # 'install --aur' con sudo: nunca funciono).
+    # elevar; ARXY_GAMING_AUR_DONE hace que la re-ejecucion elevada la salte.
+    # Root directo sin usuario que la haga: se instala lo oficial y se dice
+    # como completar (mismo limite que 'install --aur' con sudo).
     if [[ "${#aur[@]}" -gt 0 && -z "${ARXY_GAMING_AUR_DONE:-}" ]]; then
         if [[ "$(id -u)" -ne 0 ]]; then
             cmd_install --aur "${aur[@]}"
@@ -1244,9 +1196,8 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
     fi
     need_root
     ensure_image
-    # [multilib] para lib32-* (idempotente; mismo idioma sed que el hold).
-    # Guard primero: imagenes frescas ya traen una estanza activa (el
-    # builder la añade); sin guard duplicariamos el registro.
+    # [multilib] para lib32-* (idempotente). Guard primero: imagenes frescas
+    # ya traen la estanza activa y sin el duplicariamos el registro.
     grep -q '^\[multilib\]' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || \
         sed -i -E '/^#\[multilib\]/,/^#?Include/s/^#//' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
     cmd_gpu_stack "arxy-gaming-$vendor" # mesa full idempotente (amd/intel/nvidia)
@@ -1261,9 +1212,8 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
 }
 
 cmd_install() {
-    # Rewrite arxy-gaming (meta-paquete virtual): va primero para que
-    # --dry-run informe sin root (como doctor --fix). El resto de args
-    # sigue su curso normal tras el gaming (o se ignora en dry-run).
+    # Rewrite arxy-gaming (meta-paquete virtual) primero, para que --dry-run
+    # # informe sin root (como doctor --fix).
     local -a _rest=()
     local _g _dry="" _want="" _branch="" _gaming_count=0
     for _g in "$@"; do
@@ -1291,9 +1241,8 @@ cmd_install() {
         return
     fi
     [[ $# -ge 1 ]] || die "uso: $PROG install <paquete...>  |  $PROG install --aur <paquete...>"
-    # validar TODO el argv ANTES de root/red. Un "" o "my app"
-    # moria en pacman tras escalar y descargar (~130MB). gpu-amd|gpu-nvidia
-    # son virtuales fijos (siempre validos); el resto pasa check_pkg_name.
+    # Validar TODO el argv ANTES de root/red: un "" o "my app" moria en pacman
+    # tras escalar y descargar (~130MB).
     local -a pkgs=()
     local -a gpu_reqs=()
     local g
@@ -1305,9 +1254,8 @@ cmd_install() {
     need_root
     data_lock # (la fase AUR-usuario no lo toma: entra por __install-file)
     ensure_image
-    # Nombres virtuales GPU (no son paquetes): se resuelven antes de pacman.
-    # Sin flags pacman aqui (): "--root"/"--config" llegarian a un
-    # pacman privilegiado como opciones (incluye --dry-run fuera de gaming).
+    # GPU: nombres virtuales, no paquetes; se resuelven antes de pacman y sin
+    # flags (): "--root"/"--config" llegarian al pacman privilegiado.
     local _gr
     for _gr in "${gpu_reqs[@]}"; do cmd_gpu_stack "$_gr"; done
     [[ "${#pkgs[@]}" -gt 0 ]] || return 0
@@ -1318,12 +1266,11 @@ cmd_install() {
     local p
     for p in "${pkgs[@]}"; do
         [[ "$p" == -* ]] && continue
-        # Best-effort honesto: si export muere, avisar (no silencio).
+        # Si export muere, avisar (nunca en silencio).
         cmd_export "$p" || msg "aviso: no pude exportar $p" >&2
     done
     update_desktop_db
-    # Legacy sin tag que export_one no toco (pre-X-Arxy-Pkg): aviso a
-    # stderr, nunca falla el install.
+    # Legacy sin tag que export_one no toco (pre-X-Arxy-Pkg): aviso, nunca falla.
     desktop_migrate_auto || true
     [[ -z "${ARXY_NO_AUTO_DEDUP:-}" ]] && do_dedup auto
     msg "instalado: $*"
@@ -1358,23 +1305,21 @@ cmd_install_aur() {
     if [[ "${#failed[@]}" -gt 0 ]]; then
         die "no pude construir/instalar AUR: '${failed[*]}' (mira los errores de arriba; reintenta de a uno con '$PROG install --aur <paquete>')"
     fi
-    # El hook de usuario es best-effort; una mutación root cubrirá /usr después.
+    # Hook de usuario best-effort: una mutacion root cubrira /usr despues.
     [[ -w "$ARXY_DATA" && -z "${ARXY_NO_AUTO_DEDUP:-}" ]] && do_dedup auto
     msg "instalado (AUR): $*"
 }
 
-# Prepara makepkg y usa paru solo cuando funciona; git es el fallback.
 ensure_aur_env() {
     [[ -d "$ARXY_BUILD" ]] || die "falta $ARXY_BUILD: ejecuta 'sudo $PROG setup' para crearlo"
-    # Herramientas de build: las que falten se instalan solas (una vez).
-    # strip vive en binutils (nombre distinto al binario).
+    # Build tools: las que falten se instalan solas (strip vive en binutils).
     local t missing_tools=()
     for t in fakeroot strip git curl pkgconf patch debugedit jq; do
         in_sys "/usr/bin/$t" --version >/dev/null 2>&1 || {
             [[ "$t" == "strip" ]] && missing_tools+=("binutils") || missing_tools+=("$t")
         }
     done
-    # makepkg viene con pacman (siempre presente si la imagen es valida).
+    # makepkg viene con pacman.
     in_sys /usr/bin/makepkg --version >/dev/null 2>&1 || \
         die "imagen rota: sin makepkg"
     if [[ "${#missing_tools[@]}" -gt 0 ]]; then
@@ -1401,7 +1346,7 @@ aur_build() { # <pkg> -> ruta paquete construido
     local work_host="$ARXY_BUILD/aur/$pkg" work_ns="$NS_BUILD/aur/$pkg"
     rm -rf "${work_host:?}"
     mkdir -p "$ARXY_BUILD/aur" || die "no puedo escribir en $ARXY_BUILD"
-    # Dentro del namespace solo existe work_ns.
+
     if [[ -n "${HAVE_PARU:-}" ]]; then
         in_bwrap /usr/bin/paru --noconfirm -G "$pkg" "$work_ns" >&2 2>/dev/null || \
         in_bwrap /usr/bin/git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$work_ns" >&2 || \
@@ -1414,7 +1359,7 @@ aur_build() { # <pkg> -> ruta paquete construido
     if [[ -f "$work_host/.SRCINFO" ]]; then
         local md missing=() d selfpkgs
         md="$(grep -E '^[[:space:]]*(makedepends?|depends?) =' "$work_host/.SRCINFO" 2>/dev/null | sed 's/^[^=]*=[[:space:]]*//' | sort -u || true)"
-        # Excluir subpaquetes del mismo pkgbase: no están en repositorios.
+        # Excluir subpaquetes del mismo pkgbase: no estan en los repos.
         selfpkgs="$(grep -E '^[[:space:]]*pkgname =' "$work_host/.SRCINFO" 2>/dev/null | sed 's/.*=[[:space:]]*//' | sort -u || true)"
         while IFS= read -r d; do
             d="${d%%[<>=]*}" # quita restricciones de version (gcc>=13 -> gcc)
@@ -1423,19 +1368,19 @@ aur_build() { # <pkg> -> ruta paquete construido
             in_bwrap /usr/bin/pacman -Q "$d" >/dev/null 2>&1 || missing+=("$d")
         done <<<"$md"
         if [[ "${#missing[@]}" -gt 0 ]]; then
-            # stdout está reservado para la ruta del paquete final.
+            # stdout reservado a la ruta del paquete final.
             msg "deps de $pkg: ${missing[*]}" >&2
             as_root "$SELF" install "${missing[@]}" >&2 || \
                 msg "aviso: alguna dep no esta en repos oficiales; sigo y que decida makepkg" >&2
         fi
     fi
-    # Los -bin usan una copia de makepkg.conf sin debug ni LTO.
+    # Los -bin usan copia de makepkg.conf sin debug ni LTO.
     cp "$ARXY_ROOT/etc/makepkg.conf" "$work_host/makepkg-arxy.conf" 2>/dev/null || \
         die "falta /etc/makepkg.conf en la imagen"
     printf '%s\n' 'OPTIONS=(strip docs !libtool !staticlibs emptydirs zipman purge !debug !lto)' \
         >> "$work_host/makepkg-arxy.conf"
     mkdir -p "$work_host/bin"
-    # Shims locales evitan chown bajo userns y admiten sintaxis tar antigua.
+    # Shims locales: evitan chown bajo userns y admiten tar antiguo.
     cat > "$work_host/bin/bsdtar" <<'SHIM'
 #!/bin/sh
 case "$1" in
@@ -1453,7 +1398,7 @@ case "$1" in
   *) exec /usr/bin/bsdtar "$@" ;;
 esac
 SHIM
-    # GNU tar antiguo recibe --no-same-owner en la posición que acepta.
+    # GNU tar antiguo: --no-same-owner donde lo acepta.
     cat > "$work_host/bin/tar" <<'SHIM'
 #!/bin/sh
 case "$1" in
@@ -1461,7 +1406,7 @@ case "$1" in
   *) exec /usr/bin/tar "$@" --no-same-owner ;;
 esac
 SHIM
-    # cp -a necesita anular ownership después de -a, salvo opción explícita.
+    # cp -a: anular ownership despues de -a salvo opcion explicita.
     cat > "$work_host/bin/cp" <<'SHIM'
 #!/bin/sh
 for a in "$@"; do
@@ -1473,10 +1418,10 @@ done
 exec /usr/bin/cp "$@"
 SHIM
     chmod +x "$work_host/bin/bsdtar" "$work_host/bin/tar" "$work_host/bin/cp"
-    # install filtra únicamente opciones de propietario/grupo.
+    # install: filtra solo opciones de propietario/grupo.
     cat > "$work_host/bin/install" <<'SHIM'
 #!/bin/sh
-# Filtro con centinela (rotar sin recentinela reordena/duplica).
+# Filtro con centinela (rotar sin el reordena/duplica).
 sent="__shim_end_$$"
 set -- "$@" "$sent"
 while [ $# -gt 0 ] && [ "$1" != "$sent" ]; do
@@ -1491,16 +1436,16 @@ exec /usr/bin/install "$@"
 SHIM
     chmod +x "$work_host/bin/install"
     local build_ok=0
-    # ARXY_GPG_CHECK activa la verificación PGP de makepkg.
+    # ARXY_GPG_CHECK activa el PGP de makepkg.
     local -a pgp_args=(--skippgpcheck)
     [[ -n "${ARXY_GPG_CHECK:-}" ]] && pgp_args=()
-    # Argumentos estructurados, sin programa bash -c intermedio.
+
     in_bwrap --chdir "$work_ns" --setenv PATH "$work_ns/bin:$PATH" -- \
         /usr/bin/makepkg --config "$work_ns/makepkg-arxy.conf" --noconfirm \
         "${pgp_args[@]}" >&2 && build_ok=1
     rm -rf "${work_host:?}/bin" # shims solo para este build: fuera siempre
     [[ $build_ok -eq 1 ]] || die "fallo al compilar '$pkg' con makepkg (mira el error de arriba; el codigo queda en '$ARXY_BUILD/aur/$pkg' para depurar)"
-    # En pkgbase divididos, excluir artefactos de paquetes hermanos.
+    # pkgbase divididos: excluir artefactos de los hermanos.
     local sibs sib cand ok
     sibs="$(grep -E '^[[:space:]]*pkgname =' "$work_host/.SRCINFO" 2>/dev/null | sed 's/.*=[[:space:]]*//' | sort -u || true)"
     f=""
@@ -1517,7 +1462,6 @@ SHIM
     echo "$f"
 }
 
-# Paso privilegiado: traduce la ruta host, instala y etiqueta lanzadores.
 cmd_install_file() {
     need_root
     [[ $# -eq 1 && -f "${1:-}" ]] || die "uso interno: $PROG __install-file <paquete.pkg.tar.zst>"
@@ -1575,9 +1519,8 @@ cmd_update() {
     return 0 # [[...]] && ... final daria rc=1 con el hook desactivado
 }
 
-# Limpieza: dry-run por defecto (informa), --apply ejecuta.
-# Solo borra regenerables (cache, builds, restos): jamas toca pacman.conf
-# (IgnorePkg y cia sobreviven) ni el rootfs.
+# Limpieza: dry-run por defecto (informa), --apply ejecuta. Solo borra
+# regenerables (cache, builds, restos): jamas toca pacman.conf ni el rootfs.
 cmd_clean() { # [--apply]
     local apply=""
     [[ "${1:-}" == "--apply" ]] && apply=1
@@ -1616,12 +1559,10 @@ cmd_clean() { # [--apply]
     msg "limpieza hecha"
 }
 
-# Dedup por hardlinks: runtimes identicos entre apps (Electron) ocupan N
-# veces su tamaño; linkearlos ahorra sin coste de lectura ni FUSE.
-# pacman reemplaza ficheros al actualizar (no escribe in-place): el link se
-# rompe solo y cada app vuelve a ser independiente. Es correcto.
-# Si una app modificara un fichero linkeado afectaria a las demas; en /usr
-# no ocurre en la practica (ver README).
+# Dedup por hardlinks: runtimes identicos entre apps (Electron) ocupan N veces
+# su tamaño; linkearlos ahorra sin coste de lectura ni FUSE. pacman reemplaza
+# ficheros al actualizar (no escribe in-place): el link se rompe solo y cada app
+# vuelve a ser independiente. Es correcto.
 # TODO: nombres con \n quiebran el parseo (asumimos que /usr no los tiene); upgrade: find -print0 + cksum --zero.
 do_dedup() ( # [auto] : subshell; auto solo informa si ahorra >=10MB
     local auto="${1:-}"
@@ -1629,9 +1570,9 @@ do_dedup() ( # [auto] : subshell; auto solo informa si ahorra >=10MB
     local work=""
     work="$(mktemp -d "$ARXY_DATA/.arxy-dedup.XXXXXX" 2>/dev/null)" || { msg "aviso: sin dedup (no hay temporal en $ARXY_DATA)" >&2; return 0; }
     trap '[[ -n "${work:-}" ]] && rm -rf "$work"' EXIT
-    # cksum POSIX (stat -c no existe en BSD, find -printf no existe en busybox):
-    # CRC+tamaño en una pasada; sha256 solo confirma candidatos.
-    # -links 1 = idempotente (lo ya linkeado se salta solo); -type f excluye symlinks.
+    # cksum POSIX (stat -c no existe en BSD, find -printf no en busybox):
+    # CRC+tamaño en una pasada, sha256 solo confirma candidatos.
+    # -links 1 = idempotente; -type f excluye symlinks.
     find "$ARXY_ROOT/usr" -type f -links 1 -exec cksum {} + 2>/dev/null | sort -k1,1n -k2,2n >"$work/all"
     awk '{print $1, $2}' "$work/all" | uniq -d >"$work/dups"
     local key size line h f first lasth
@@ -1644,7 +1585,7 @@ do_dedup() ( # [auto] : subshell; auto solo informa si ahorra >=10MB
         while IFS= read -r line; do
             h="${line%% *}"; f="${line#* }"; f="${f# }"; f="${f#\*}"
             if [[ "$h" == "$lasth" && -n "$first" ]]; then
-                # cmp antes de ln: si algo cambio entre cksum y aqui, no linkear distintos.
+                # cmp antes de ln: si algo cambio, no linkear distintos.
                 if cmp -s "$first" "$f" 2>/dev/null && ln -f "$first" "$f" 2>/dev/null; then
                     saved=$((saved + size)); linked=$((linked + 1))
                 fi
@@ -1673,11 +1614,10 @@ cmd_dedup() {
     do_dedup
 }
 # --- GPU real: heuristica NVIDIA en bash, deteccion pura.
-# El montaje vive en run_in (lib/10-level.sh: solo run/shell; pacman via
-# in_bwrap no toca GPU). Salidas componibles: una entrada por linea. Mocks en AGENTS.md (todos probativos: sin mock y sin
-# NVIDIA, vacio sin fallar). file(1) ya es dependencia declarada del paquete.
-# NOTA: el driver Xorg (xorg/modules) no se escanea (sin mock propio); su
-# MAPEO si esta en nvidia_guest_path (se instala por ruta conocida).
+# El montaje vive en run_in (lib/10-level.sh): solo run/shell; pacman via
+# in_bwrap no toca GPU. Salidas componibles: una entrada por linea. Mocks en
+# AGENTS.md. file(1) ya es dependencia declarada. El driver Xorg (xorg/modules)
+# no se escanea: su mapeo esta en nvidia_guest_path (ruta conocida).
 
 elf_class() { # <fichero> : 64|32|"" (vacio = no ELF o file ausente)
     local f="$1" cls=""
@@ -1688,7 +1628,7 @@ elf_class() { # <fichero> : 64|32|"" (vacio = no ELF o file ausente)
         "ELF 64-bit") echo 64; return 0 ;;
         "ELF 32-bit") echo 32; return 0 ;;
     esac
-    # Fallback por path (sin file): solo 32 es seguro de adivinar; el resto
+    # Fallback por path (sin file): solo 32 es seguro de adivinar; lo
     # desconocido se salta (nunca montar algo mal clasificado).
     case "$f" in
         */lib32/*|*/i386-linux-gnu/*) echo 32; return 0 ;;
@@ -1699,8 +1639,7 @@ elf_class() { # <fichero> : 64|32|"" (vacio = no ELF o file ausente)
 
 nvidia_libs() { # "class<TAB>path" por lib NVIDIA del host ("" = ninguna)
     # Patrones con 'nvidia'/'cuda' obligatorios: 'libGLESv*.so*' a secas
-    # cazaria mesa y la sombrearia al montar. Symlinks saltados (el real ya
-    # sale); dedup por inodo para hardlinks.
+    # cazaria mesa. Symlinks saltados (el real ya sale); dedup por inodo.
     local r="${ARXY_NVIDIA_LIB_ROOT:-/usr/lib}"
     local r64="${ARXY_NVIDIA_LIB_ROOT64:-/usr/lib64}"
     local r32="${ARXY_NVIDIA_LIB_ROOT32:-/usr/lib32}"
@@ -1752,14 +1691,13 @@ nvidia_icd_rewrite() { # <host_icd> <guest_lib> : JSON con library_path reescrit
     lp="$(nvidia_icd_library "$icd")"
     if [[ -z "$lp" ]]; then cat "$icd" 2>/dev/null || true; return 0; fi
     # Sustitucion literal bash (patron entrecomillado = sin globs; en el
-    # reemplazo & y \ son literales, al reves que en sed): aguantan
-    # espacios, comillas, & y backslashes en rutas.
+    # reemplazo & y \ son literales, al reves que en sed).
     content="$(cat "$icd" 2>/dev/null || true)"
     printf '%s\n' "${content//"$lp"/"$glib"}"
     return 0
 }
-# TODO: rewrite solo 64-bit (el loader de 32-bit necesitaria su propio
-# manifiesto); segundo manifiesto cuando alguien corra Vulkan 32-bit aqui.
+# TODO: rewrite solo 64-bit (el loader 32-bit necesitaria su manifiesto);
+# upgrade con un segundo manifiesto cuando alguien corra Vulkan 32-bit aqui.
 
 nvidia_guest_path() { # <host_path> <class> : path en rootfs ("" = inclasificable)
     local h="$1" cls="${2:-}" lib
@@ -1795,11 +1733,10 @@ nvidia_mounts() { # "host<TAB>guest" (libs + ICDs + devices; "" = nada)
 }
 
 gpu_stack_pkgs() { # un paquete por linea: ICD Vulkan glibc del rootfs
-    # GL/DRI ya lo trae mesa-mini (iris/radeonsi/nouveau presentes);
-    # falta el ICD Vulkan del vendor (+lib32; pacman cierra dependencias).
-    # Sin discreta se asume Intel (la iGPU no reporta vendor a drm).
-    # NVIDIA pinneado al modulo del host (como arxy_gaming_pkgs);
-    # sin version legible se muere claro (un utils sin pin rompe el GL).
+    # GL/DRI ya lo trae mesa-mini (iris/radeonsi/nouveau); falta el ICD Vulkan
+    # del vendor (+lib32). Sin discreta se asume Intel (la iGPU no reporta
+    # vendor a drm). NVIDIA se pinea al modulo del host: sin version legible,
+    # un utils sin pin rompe el GL.
     local ver=""
     case "$(detect_gpu || true)" in
         nvidia) ver="$(detect_nvidia_ver || true)"
@@ -1862,9 +1799,8 @@ cmd_search_aur() {
 }
 pkg_desktops() { # <pkg> -> rutas /usr/share/applications/*.desktop dentro de la imagen
     # L2: pacman --root prefija cada ruta con $ARXY_ROOT (en L1 salen
-    # peladas): se recorta el prefijo para que el grep vea lo mismo.
-    # ← ciclo 6.5.5 en Void-musl (L2): install/export decia "sin .desktop"
-    # para todo paquete (Alacritty.desktop, org.xfce.mousepad.desktop).
+    # peladas): sin recortarla, install/export decia "sin .desktop" para todo
+    # (ciclo 6.5.5 en Void-musl).
     local f base
     while IFS= read -r f; do
         f="${f#$ARXY_ROOT}"
@@ -1879,11 +1815,11 @@ desk_field() { grep -m1 -E "^$2=" "$1" | cut -d= -f2-; }
 # cmd_export <pkg | archivo.desktop | --all>
 cmd_export() {
     [[ $# -eq 1 ]] || die "uso: $PROG export <paquete | archivo.desktop | --all>"
-    # Sin flags a run_pacman (-Qlq pasaria la opcion a pacman).
+    # Sin flags a run_pacman: -Qlq pasaria la opcion a pacman.
     [[ "$1" == -* && "$1" != --all ]] && die "opcion no soportada en export: '$1'"
-    # el nombre de paquete se valida ANTES de ensure_image (un "a b"
-    # moria en pacman tras descargar; un "" daba "sin .desktop" rc 0).
-    # Rutas .desktop sí pueden llevar espacios: no se validan.
+    # El nombre de paquete se valida ANTES de ensure_image (un "a b" moria
+    # en pacman tras descargar; un "" daba "sin .desktop" rc 0). Las rutas
+    # .desktop si pueden llevar espacios: no se validan.
     if [[ "$1" != --all && "$1" != *.desktop ]]; then check_pkg_name "$1"; fi
     ensure_image
     local -a srcs=()
@@ -1907,10 +1843,9 @@ cmd_export() {
     fi
     local s lbl
     for s in "${srcs[@]}"; do
-        # export --all / <archivo.desktop> etiquetaba con el
-        # literal ("--all", "foo.desktop") y remove nunca lo encontraba
-        # (solo borra por nombre exacto de paquete). Deducir por fichero
-        # con la misma funcion que migrate (idempotente).
+        # export --all / <archivo.desktop> etiquetaba con el literal y remove
+        # nunca lo encontraba (solo borra por nombre exacto de paquete):
+        # deducir por fichero con la misma funcion que migrate.
         if [[ "$1" == --all || "$1" == *.desktop ]]; then
             lbl="$(_desktop_infer_pkg "$s")"
             [[ -n "$lbl" ]] || lbl="$1"
@@ -1983,8 +1918,8 @@ _desktop_infer_pkg() { # <ruta arxy-*.desktop> -> imprime el pkg inferido
     local base="${1##*/}"
     base="${base#arxy-}"
     base="${base%.desktop}"
-    # Multi-desktop (p. ej. xterm trae xterm+uxterm con X-Arxy-Pkg=xterm):
-    # el nombre solo aproxima; el proximo install/export lo corrige.
+    # Multi-desktop (xterm trae xterm+uxterm con X-Arxy-Pkg=xterm): el nombre
+    # solo aproxima; el proximo install/export lo corrige.
     [[ -n "$base" ]] || base="unknown"
     printf '%s' "$base"
 }
@@ -2004,9 +1939,9 @@ cmd_desktop_migrate() { # etiqueta legacy sin X-Arxy-Pkg (idempotente)
 }
 
 desktop_migrate_auto() { # [verbose] tras install/update: aviso a stderr, nunca falla
-    # Núcleo único del migrate: el cmd pide detalle por lanzador + resumen
-    # (msg/stdout); el hook auto solo avisa a stderr si migró algo.
-    # Solo añade el tag (no toca Name/Exec): no requiere update-desktop-database.
+    # Nucleo unico del migrate: el cmd pide detalle por lanzador + resumen, el
+    # hook auto solo avisa a stderr. Solo anade el tag (no toca Name/Exec):
+    # no requiere update-desktop-database.
     local verbose="${1:-}" f n=0 s=0 pkg
     shopt -s nullglob
     for f in "$REAL_APPS"/arxy-*.desktop; do
@@ -2057,8 +1992,8 @@ update_desktop_db() {
 }
 # --- ejecucion (corre como usuario)
 # canonicaliza una ruta sin fiarse del || entre comandos que escriben a
-# stdout: busybox realpath no conoce -m, lo trata como operando (imprime
-# su resolucion y falla) y el fallback duplicaria la ruta con un \n.
+# stdout: busybox realpath no conoce -m, lo trata como operando (imprime su
+# resolucion y falla) y el fallback duplicaria la ruta con un \n.
 resolve_path() { # <ruta> -> ruta canonica (siempre tiene exito)
     local r
     if r="$(realpath -m "$1" 2>/dev/null)" && [[ "$r" != *$'\n'* ]]; then
@@ -2098,8 +2033,8 @@ resolve_target() { # <bin|ruta> -> deja la ruta vista desde dentro en RESOLVED_T
         fi
     else
         for cand in "/usr/bin/$t" "/usr/local/bin/$t" "/bin/$t" "/usr/sbin/$t"; do
-            # -L ademas de -x: los symlinks absolutos (/usr/bin/x -> /opt/...)
-            # cuelgan vistos desde el host aunque resuelvan bien dentro.
+            # -L ademas de -x: un symlink absoluto (/usr/bin/x -> /opt/...)
+            # cuelga visto desde el host aunque resuelva bien dentro.
             if [[ -x "$ARXY_ROOT$cand" || -L "$ARXY_ROOT$cand" ]]; then RESOLVED_TARGET="$cand"; return 0; fi
         done
         h="$(command -v "$t" 2>/dev/null || true)"
@@ -2154,8 +2089,8 @@ cmd_run() {
     run_in --chdir "$(inside_dir)" -- "$target" "$@"
 }
 
-# shell en nivel 2: bash del subsistema via ld-linux. Los nombres que el
-# host no resuelve caen en command_not_found_handle (ver level2-rc de setup).
+# shell en nivel 2: bash del subsistema via ld-linux. Los nombres que el host
+# no resuelve caen en command_not_found_handle (level2-rc de setup).
 cmd_shell_level2() {
     level2_env
     bridge_env_l2 # la shell L2 tambien ve el bridge
@@ -2189,9 +2124,9 @@ cmd_shell() {
         msg "sesion de usuario (solo lectura del sistema; para administrar: sudo $PROG shell)"
     fi
     if [[ $# -ge 1 ]]; then
-        # shell toma un STRING de shell (como ssh): unir con espacios para
-        # bash -c. El re-exec a root ya preserva el argv; serializar con %q
-        # aqui romperia pipes, redirects y comillas.
+        # shell toma un STRING (como ssh): unir con espacios para bash -c. El
+        # re-exec a root preserva el argv; serializar con %q aqui romperia
+        # pipes, redirects y comillas.
         # shellcheck disable=SC2145
         run_in --chdir "$(inside_dir)" --setenv PS1 "(arxy) \\u@\\h \\w\\$ " -- /bin/bash -c "$*"
     else
@@ -2213,8 +2148,7 @@ cmd_which() { # <bin|ruta> : donde se resolveria (subsistema vs host)
 }
 # --- deteccion de plataforma y hardware (funciones puras)
 # GPU discreta que mesa-mini (sin LLVM) no acelera: amd|nvidia|"". Via /sys
-# (lspci puede no existir en hosts minimos). ARXY_SYS_DRM_PATH inyecta un
-# /sys falso para tests sin hardware (ver tests/test-gpu-drm.sh).
+# (lspci puede faltar); ARXY_SYS_DRM_PATH inyecta un /sys falso para tests.
 detect_gpu() {
     local base="${ARXY_SYS_DRM_PATH:-/sys/class/drm}" v
     for v in "$base"/card*/device/vendor; do
@@ -2228,8 +2162,8 @@ detect_gpu() {
 }
 
 is_mesa_mini() { # mini = build externo sin firma conocida
-    # Sin pipe directo: con pipefail, `prod | grep -q` miente (SIGPIPE
-    # 141 cierra el productor antes; regla 5). Capturar y grepear después.
+    # Sin pipe directo: con pipefail `prod | grep -q` miente (SIGPIPE 141
+    # cierra el productor antes; regla 5). Capturar y grepear despues.
     local _qi
     _qi="$(run_pacman -Qi mesa 2>/dev/null || true)"
     grep -q '^Packager.*Unknown' <<<"$_qi"
@@ -2239,13 +2173,10 @@ mesa_hold_active() { # IgnorePkg=mesa en pacman.conf (mini protegido del update)
     grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null
 }
 
-# Mocks de deteccion y salidas componibles sin jq: kmods en una línea
-# (espacios), dev_nodes una
-# ruta por línea, el resto valor único o vacío. Mocks (patrón ARXY_SYS_DRM_PATH):
-#   ARXY_SYS_ROOT=""  prefijo de /proc y /sys (falso en tests)
-#   ARXY_DEV_PATH="/dev"  dir de dispositivos (falso en tests)
-#   ARXY_LIB_DIR="/lib"  dir de loaders (falso en tests)
-#   ARXY_LIB64_DIR="/lib64"  idem 64 bits (falso en tests)
+# Mocks de deteccion (prefijos falsos para tests): ARXY_SYS_ROOT (/proc, /sys),
+# ARXY_DEV_PATH (/dev), ARXY_LIB_DIR, ARXY_LIB64_DIR (loaders), ARXY_SYS_DRM_PATH
+# (/sys/class/drm). Salidas sin jq: kmods en una linea (espacios), dev_nodes una
+# ruta por linea, el resto valor unico o vacio.
 detect_libc() { # glibc|musl|unknown (ambos loaders -> decide ldd: el primario)
     local d="${ARXY_LIB_DIR:-/lib}" d64="${ARXY_LIB64_DIR:-/lib64}"
     local musl="" glibc="" m
@@ -2297,9 +2228,9 @@ cpu_tier() { # [cpuinfo] [arch] [ldso] : v3|v4|znver4 (vacio + rc 1 si <v3 o no 
     line="$(grep -m1 '^flags[[:space:]]*:' "$cpuinfo" 2>/dev/null || true)"
     [[ -n "$line" ]] || return 1
     local fl=" ${line#*:} "
-    # Nivel base: el ld-linux del host manda (lee CPUID directo, canonico
-    # glibc como la wiki CachyOS). Las flags van enmascaradas en VMs y no
-    # vetan. Sin ld-linux (musl) caemos a flags estrictas (conservador).
+    # El ld-linux del host manda (lee CPUID directo, canonico glibc como la
+    # wiki CachyOS): las flags van enmascaradas en VMs y no vetan. Sin ld-linux
+    # (musl) caemos a flags estrictas (conservador).
     local ldso="${3:-}" _lp
     if [[ -z "$ldso" ]]; then
         for _lp in /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-x86-64.so.2 /usr/lib/ld-linux-x86-64.so.2; do
@@ -2326,21 +2257,20 @@ cpu_tier() { # [cpuinfo] [arch] [ldso] : v3|v4|znver4 (vacio + rc 1 si <v3 o no 
         [[ -n "$ok" ]] && v4=1
     fi
     [[ -n "$v3" ]] || return 1
-    # Hibridos Intel (Alder Lake+): reportan v4 pero sin AVX512 usable
-    # (wiki CachyOS); modelos heterogeneos => tope v3.
-    # ponytail: heterogeneidad como proxy de hibrido; tabla de modelos si da falsos.
+    # Hibridos Intel (Alder Lake+): reportan v4 pero sin AVX512 usable (wiki
+    # CachyOS) => tope v3. Heterogeneidad como proxy de hibrido (tabla de
+    # modelos si da falsos).
     local nmodels
     nmodels="$(grep '^model[[:space:]]*:' "$cpuinfo" 2>/dev/null | sort -u | grep -c . || true)"
     if [[ "${nmodels:-1}" -gt 1 ]]; then echo v3; return 0; fi
     if [[ -z "$v4" ]]; then echo v3; return 0; fi
     local vendor
     vendor="$(grep -m1 '^vendor_id' "$cpuinfo" 2>/dev/null || true)"
-    # ponytail: znver4 ~= VBMI en AMD (sin gcc para -march=native en imagen ni host).
+    # znver4 ~= VBMI en AMD (sin gcc para -march=native).
     if [[ "$vendor" == *AuthenticAMD* && "$fl" == *" avx512vbmi "* ]]; then echo znver4; return 0; fi
     echo v4
 }
-# --- diagnostico, reparaciones y salida humana
-# Contratos compartidos por la salida humana y JSON.
+# --- diagnostico, reparaciones y salida humana (contratos con 62-json.sh)
 declare -ar HOST_TOOLS=(bwrap curl tar zstd sha256sum awk sed grep mktemp su)
 declare -ar FIX_IDS=(hold-mesa nvidia-align musl-glibc-stack gpu-full-stack staging-cleanup)
 # Cada fix se serializa como {id,applicable,destructive,requires_root,reason,
@@ -2366,9 +2296,8 @@ cmd_quickstart() { # el siguiente paso segun estado (para quien no lee READMEs)
     fi
 }
 
-# Aviso mesa-mini en AMD/NVIDIA (solo informa, nunca falla).
-# Funcion separada (no inline en doctor): el $() dentro de cmd_doctor
-# dispara un falso positivo SC2319 en shellcheck 0.11.
+# Aviso mesa-mini en AMD/NVIDIA (solo informa). Funcion separada y no inline:
+# el $() dentro de cmd_doctor dispara un falso positivo SC2319 (shellcheck 0.11).
 doctor_gpu() {
     local _g
     _g="$(detect_gpu || true)"
@@ -2382,8 +2311,8 @@ doctor_gpu() {
     fi
 }
 
-# Sonda pura: llena un array asociativo con status, reason, action y opt_in.
-# Estados: ok | todo | info | skip. No serializa datos con delimitadores.
+# Sonda pura: array asociativo con status, reason, action, opt_in
+# (ok | todo | info | skip). Sin delimitadores para serializar.
 _fix_result() { # <array> <status> <reason> [action] [opt-in]
     local -n target="$1"
     target=([status]="$2" [reason]="$3" [action]="${4:-}" [opt_in]="${5:-}")
@@ -2520,10 +2449,8 @@ fix_apply() { # <fix-id>: 0 aplicado, 1 fallo, 2 no implementado
     esac
 }
 
-# Fixes propuestos (informan y proponen; solo hold-mesa aplica).
-# Contrato: `doctor --fix` informa (rc 0); `--fix --apply` exige root y
-# aplica no-destructivos; `--fix --apply --confirm` + tty para destructivos.
-# Ya no toca el `ok` de cmd_doctor: devuelve su propio rc.
+# Fixes propuestos (solo hold-mesa aplica). `--fix` informa (rc 0); `--apply`
+# exige root y aplica no-destructivos; `--confirm` + tty para los destructivos.
 doctor_fix() { # [--fix [--apply [--confirm]]]
     [[ "${1:-}" == "--fix" ]] || return 0
     local apply="" confirm="" fails=0
@@ -2533,8 +2460,8 @@ doctor_fix() { # [--fix [--apply [--confirm]]]
         die "'$PROG doctor --fix --apply' necesita root (sin root solo informa)"
     fi
     [[ -n "$apply" ]] && data_lock # el apply muta (hold/staging/musl)
-    # avisar si hay sesion bridge viva (el apply rota el root).
-    # Guarda command -v: tests que sourcean 60-hw sin 80-bridge no la tienen.
+    # Avisar si hay sesion bridge viva (el apply rota el root). Guardar
+    # command -v: los tests sourcean sin 80-bridge.
     [[ -n "$apply" ]] && command -v bridge_session_notice >/dev/null 2>&1 && bridge_session_notice
     local fid st reason action apply_rc
     local -A fix=()
@@ -2568,8 +2495,8 @@ doctor_fix() { # [--fix [--apply [--confirm]]]
     done
     local lock="$ARXY_ROOT/var/lib/pacman/db.lck"
     if [[ -f "$lock" ]]; then
-        # ¿pacman real en curso? Por comm de /proc, no por cmdline (pgrep -f
-        # se auto-detecta: nuestra propia linea de comandos menciona pacman).
+        # ¿pacman real? Por comm de /proc, no por cmdline: pgrep -f se
+        # auto-detecta (nuestra propia linea menciona pacman).
         local _run="" _pc
         for _pc in /proc/[0-9]*/comm; do
             [[ -f "$_pc" ]] || continue
@@ -2599,7 +2526,6 @@ doctor_fix() { # [--fix [--apply [--confirm]]]
     return $fails
 }
 
-# --- doctor / version / ayuda
 cmd_doctor() {
     local args=() a use_json=""
     for a in "$@"; do
@@ -2625,12 +2551,12 @@ cmd_doctor() {
     fi
     image_ok; local _img=$?
     say $_img "imagen en $ARXY_ROOT"
-    # el recien instalado no recibe "siguiente paso" (la via xbps
-    # no muestra el eco de install.sh). Sugerir setup/quickstart aqui.
+    # El recien instalado no recibe "siguiente paso" (la via xbps no muestra
+    # el eco de install.sh): sugerir setup/quickstart aqui.
     if (( _img != 0 )); then msg "siguiente: $PROG setup (descarga ~130MB) o $PROG quickstart"; fi
     [[ -f "$ARXY_VERSION_FILE" ]] && msg "imagen: $(version_line)"
     [[ -n "$ARXY_IMAGE_URL" ]]; say $? "ARXY_IMAGE_URL configurada"
-    # Deteccion sin dependencias exoticas: solo bwrap funcional (nunca unshare).
+    # Deteccion sin dependencias exoticas: solo bwrap funcional.
     level
     if [[ "$_ARXY_LEVEL" == 1 ]]; then
         echo "[OK]   nivel 1 (bwrap + namespaces)"
@@ -2669,9 +2595,9 @@ cmd_version() {
     show_hardware_profile
 }
 # --- doctor --json (superficie pública versionada, format 1) ---
-# Sin jq a propósito (cero dependencias nuevas): printf + escaping mínimo.
-# Reglas: orden de campos fijo, arrays ordenados, avisos a stderr,
-# stdout = un solo documento JSON, exit igual que doctor en texto.
+# Sin jq a proposito (cero dependencias): printf + escaping minimo.
+# Reglas: orden de campos fijo, arrays ordenados, avisos a stderr, stdout = un
+# solo documento JSON, exit igual que doctor en texto.
 # Schema mínimo: format=int, level=int, libc={kind,version}, kernel={arch,
 # release}, capacidades=bool, landlock={available,abi}, gpu={vendor,driver,
 # render_node}, nvidia={present,version,usable,reason}, kmods=[], dev={},
@@ -2714,8 +2640,8 @@ probe_userns() { # 1 si hay namespaces sin root (misma prueba que doctor)
     echo 0
 }
 probe_overlayfs() ( # subshell: 1 si overlay rootless monta en userns, sin restos
-    # El mount vive en el ns muerto del unshare: nunca cuelga en el host.
-    # El EXIT trap queda confinado al subshell y cubre la muerte a mitad.
+    # El mount vive en el ns muerto del unshare: nunca cuelga en el host. El
+    # EXIT trap queda confinado al subshell (cubre la muerte a mitad).
     command -v unshare >/dev/null 2>&1 || { echo 0; return 0; }
     local t
     t="$(mktemp -d 2>/dev/null || true)"
@@ -2753,8 +2679,8 @@ cmd_doctor_json() { # [--fix|--apply] : se ignoran (solo se lista); JSON a stdou
     return $?
 }
 
-# Núcleo reutilizable (doctor --json y hardware.json de setup): emite el
-# JSON a stdout y devuelve el ok de doctor (para json=$(...) + rc).
+# Nucleo reutilizable (doctor --json y hardware.json de setup): emite el JSON
+# a stdout y devuelve el ok de doctor (para json=$(...) + rc).
 emit_hardware_json() {
     local ok=0 c
     for c in "${HOST_TOOLS[@]}"; do
@@ -2797,8 +2723,8 @@ emit_hardware_json() {
     done
     local rver=""
     [[ -f "$ARXY_VERSION_FILE" ]] && rver="$(version_field date || true)"
-    # (ruta JSON): mismo aviso que version_line, a stderr, sin
-    # tocar el documento (version:null ya es el contrato en corrupto).
+    # (ruta JSON): mismo aviso a stderr, sin tocar el documento (version:null
+    # ya es el contrato en corrupto).
     if [[ -f "$ARXY_VERSION_FILE" && -z "$rver" ]]; then
         msg "aviso: version ilegible, regenero en el proximo setup/install" >&2
     fi
@@ -2835,8 +2761,8 @@ emit_hardware_json() {
     return $ok
 }
 
-# Perfil persistido: hardware.json es CACHÉ del mismo schema,
-# escrita por setup; doctor --json siempre calcula fresco, nunca la lee.
+# hardware.json es CACHE del mismo schema, escrita por setup; doctor --json
+# siempre calcula fresco, nunca la lee.
 write_hardware_json() { # <json> : atómico + solo-si-cambia; nunca falla setup
     local json="$1" f="$ARXY_DATA/hardware.json" tmp old
     [[ -n "$json" ]] || return 0
@@ -2956,9 +2882,8 @@ Imagen: $ARXY_ROOT  (se descarga sola en el primer uso).
 EOF
 }
 # --- host-bridge: daemon arxy-bridged
-# Sin socket no hay nada: run_in solo monta si existe (degradacion limpia).
-# Sin auto-arranque salvo que el binario exista y ARXY_NO_BRIDGE no este.
-# Sin allowlist no arranca (default en bash; el C sigue fail-closed).
+# Sin socket no hay nada (run_in solo monta si existe), sin auto-arranque sin
+# binario o con ARXY_NO_BRIDGE, y sin allowlist no arranca.
 bridge_bin() { # ruta al daemon (override ARXY_BRIDGE_BIN para tests)
     if [[ -n "${ARXY_BRIDGE_BIN:-}" ]]; then
         [[ -x "$ARXY_BRIDGE_BIN" ]] || return 1
@@ -2982,8 +2907,8 @@ bridge_token_path() { # <sock> : token al lado (0600, del daemon)
     echo "${1%.sock}.token"
 }
 
-# Devuelve un socket utilizable o rc 1. Es la única resolución usada por L1
-# y L2: respeta NO_BRIDGE, intenta el daemon y descarta sockets huérfanos.
+# Devuelve un socket utilizable o rc 1. Unica resolucion usada por L1 y L2:
+# respeta NO_BRIDGE, intenta el daemon y descarta sockets huerfanos.
 bridge_active_socket() {
     [[ -z "${ARXY_NO_BRIDGE:-}" ]] || return 1
     ensure_bridge_daemon || true
@@ -3008,9 +2933,9 @@ bridge_default_allowlist() { # nombres (proton no es binario PATH: va por steam)
     printf '%s\n' steam wine gamescope mangohud xdg-open notify-send
 }
 bridge_resolve_allowlist() { # nombres -> paths absolutos (avisa y salta)
-    # Busqueda manual en PATH (command -v devuelve builtins/funciones,
-    # que no son ficheros ejecutables: 'echo' no resolveria nunca).
-    # IFS acotado con local (el unset global destruia el IFS del llamador).
+    # Busqueda manual en PATH (command -v devuelve builtins/funciones, que no
+    # son ejecutables: 'echo' no resolveria nunca). IFS con local: el unset
+    # global destruia el IFS del llamador.
     local n d p
     local IFS=':'
     while IFS= read -r n; do
@@ -3041,9 +2966,8 @@ bridge_env_l2() { # L2: exporta el bridge sin namespace, best-effort
     return 0
 }
 bridge_session_notice() { # para doctor --fix --apply (yMsgs): avisa
-    # si hay sesion bridge viva, ya que el apply puede rotar el root bajo
-    # apps en curso. Solo certeza (socket + pid vivo): sin pidfile no se
-    # puede confirmar y se calla. Nunca falla (rc 0 siempre).
+    # Avisar si hay sesion bridge viva: el apply puede rotar el root bajo apps
+    # en curso. Solo certeza (socket + pid vivo); nunca falla (rc 0).
     local _bsock
     _bsock="$(bridge_sock_path)"
     [[ -S "$_bsock" ]] || return 0
@@ -3063,9 +2987,8 @@ ensure_bridge_daemon() { # arranca si no hay vivo (best-effort: nunca falla run)
     exec 9>"$lock" 2>/dev/null || return 0
     flock -w 10 9 2>/dev/null || { exec 9>&-; return 0; } # otro arranca: el sigue sin socket esta vez
     bridge_pid_alive "$pidf" && { exec 9>&-; return 0; } # re-check tras lock
-    # FD 9 se cierra ANTES del exec bwrap del llamador (si sobreviviera,
-    # el sandbox heredaria el lock hasta que la app muera). El arranque
-    # hijo no hereda el FD: cmd_host_bridge reabre lo que necesite.
+    # FD 9 se cierra ANTES del exec bwrap del llamador (si sobreviviera, el
+    # sandbox heredaria el lock hasta que la app muera).
     "$SELF" host-bridge --daemon >/dev/null 2>&1
     local rc=$?
     exec 9>&-
@@ -3101,10 +3024,9 @@ cmd_host_bridge() { # [--daemon|--stop|--status] [--socket P] [--allowed-cmd B..
             echo "inactivo (buscado en $sock)"; return 1 ;;
         --stop)
             if bridge_pid_alive "$pidf"; then
-                # TERM puede tardar (drena colas); esperar evita borrar el
-                # pidfile con vivo dentro (el --daemon siguiente
-                # duplicaba instancia). Sin muerte: KILL; si ni asi,
-                # no mentir "detenido".
+                # TERM puede tardar (drena colas): esperar evita borrar el
+                # pidfile con vivo dentro (el --daemon siguiente duplicaba
+                # instancia). Sin muerte: KILL; si ni asi, no mentir.
                 kill "$(cat "$pidf")" 2>/dev/null || true
                 local _i=0
                 while [[ $_i -lt 50 ]] && bridge_pid_alive "$pidf"; do sleep 0.1; _i=$((_i+1)); done
@@ -3144,11 +3066,10 @@ cmd_host_bridge() { # [--daemon|--stop|--status] [--socket P] [--allowed-cmd B..
         local tok
         tok="$(bridge_token_new)"
         [[ -n "$tok" ]] || die "sin entropia para token (/dev/urandom)"
-        # Token en argv (visible en ps): alcance UID por socket 0600 +
-        # SO_PEERCRED; otro UID no puede usarlo aunque lo lea.
-        # Fondo simple (&): $! es el pid real (setsid bifurcaria y el
-        # pidfile mentiria). stderr a log efimero: si no levanta, el
-        # motivo del C (p. ej. not executable) llega al die.
+        # Token en argv (visible en ps): el alcance real es el socket 0600 +
+        # SO_PEERCRED. Fondo simple (&): $! es el pid real (setsid bifurcaria
+        # y el pidfile mentiria). stderr a log efimero: si no levanta, el
+        # motivo del C llega al die.
         local _blog
         _blog="$(mktemp "${sock%.sock}.blog.XXXXXX" 2>/dev/null || true)"
         "$bin" --socket "$sock" --token "$tok" "${bargs[@]}" >"$_blog" 2>&1 &
@@ -3175,14 +3096,13 @@ cmd_host_bridge() { # [--daemon|--stop|--status] [--socket P] [--allowed-cmd B..
     printf '%s' "$tok" > "$tokf"; chmod 600 "$tokf"
     exec "$bin" --socket "$sock" --token "$tok" "${bargs[@]}"
 }
-# --- dispatch
 main() {
     [[ $# -ge 1 ]] || { cmd_help; return 0; }
     local cmd="$1"
     shift
-    # --help tras el comando: ayuda global. Evita que 'install --help' intente
-    # instalar un paquete llamado --help. Ayuda por-comando no existe a proposito
-    # (cada mal uso ya imprime su 'uso:' de una linea).
+    # --help tras el comando: ayuda global (evita que 'install --help' intente
+    # instalar un paquete llamado --help). Ayuda por-comando no existe a
+    # proposito: cada mal uso ya imprime su 'uso:' de una linea.
     if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
         cmd_help
         return 0
@@ -3217,8 +3137,8 @@ main() {
     esac
 }
 
-# La biblioteca generada se puede sourcear en tests/herramientas sin ejecutar
-# el router. Como programa conserva exactamente el mismo punto de entrada.
+# La biblioteca generada se sourcea en tests sin ejecutar el router; como
+# programa conserva el mismo punto de entrada.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     main "$@"
 fi

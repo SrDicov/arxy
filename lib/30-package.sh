@@ -1,18 +1,14 @@
 # --- instalacion / remocion / mantenimiento (corren como root)
-# Limpia los .pkg descargados tras operar (cero cache prolongada).
-# Best-effort y silencioso; ARXY_KEEP_PKG_CACHE=1 la conserva.
 clean_pkg_cache() {
     [[ -n "${ARXY_KEEP_PKG_CACHE:-}" ]] && return 0
     rm -f "$ARXY_ROOT"/var/cache/pacman/pkg/* 2>/dev/null || true
 }
 
-# Stack GL completo (mesa oficial + LLVM) sobre mesa-mini, para GPUs AMD
-# (radeonsi) o NVIDIA (nouveau) que lo exigen. Solo para quien lo necesita
-# (+~170MB): el default ligero no cambia. NVIDIA propietaria queda fuera a
-# proposito (exige match exacto con el modulo del host): usa el driver del host.
+# Stack GL completo (mesa + LLVM) sobre mesa-mini, para AMD (radeonsi) o
+# NVIDIA (nouveau); solo quien lo necesita (+~170MB). La propietaria queda
+# fuera: exige match exacto con el modulo del host.
 cmd_gpu_stack() { # <gpu-amd|gpu-nvidia>
-    # Quitar el hold de la imagen (sin match = ya quitado: idempotente).
-    # Sin pacman.conf no hay nada que stackear: aviso (no silencio) y rc 0.
+    # Sin pacman.conf: aviso y rc 0 (sin match = hold ya quitado, idempotente).
     if [[ ! -f "$ARXY_ROOT/etc/pacman.conf" ]]; then
         msg "aviso: sin pacman.conf en $ARXY_ROOT, omito gpu-stack" >&2; return 0
     fi
@@ -28,10 +24,9 @@ cmd_gpu_stack() { # <gpu-amd|gpu-nvidia>
     msg "gpu: stack completo instalado (${1:-})"
 }
 
-# --- meta-paquete gaming: rewrite a dependencias reales (no existe en AUR
-# como paquete; los PKGBUILDs de packaging/aur/ son drafts para publicar).
-# gpu_stack_pkgs() (doctor --fix) = minimo Vulkan; arxy_gaming_pkgs() =
-# gaming completo. Distintas a proposito: no unificar.
+# --- meta-paquete gaming: rewrite a dependencias reales (los PKGBUILDs de
+# packaging/aur/ son drafts). gpu_stack_pkgs() (doctor --fix) = minimo Vulkan
+# y arxy_gaming_pkgs() = gaming completo: distintas a proposito, no unificar.
 arxy_gaming_vendor() { # nvidia|amd|intel ("" + rc 1 = sin GPU decidible)
     local v dri
     v="$(detect_gpu || true)"
@@ -43,7 +38,7 @@ arxy_gaming_vendor() { # nvidia|amd|intel ("" + rc 1 = sin GPU decidible)
         amd) echo amd; return 0 ;;
         *)
             # Sin discreta con dri expuesto se asume Intel (la iGPU no
-            # reporta vendor a drm; mismo criterio que hardware.json).
+            # reporta vendor a drm; criterio de hardware.json).
             dri="$(detect_dev_nodes 2>/dev/null | grep -E '/(card[0-9]+|renderD[0-9]+)$' || true)"
             [[ -n "$dri" ]] && { echo intel; return 0; }
             return 1 ;;
@@ -52,7 +47,7 @@ arxy_gaming_vendor() { # nvidia|amd|intel ("" + rc 1 = sin GPU decidible)
 
 arxy_gaming_pkgs() { # <vendor> : un paquete por linea (gaming completo)
     local v="$1" ver
-    # Lista canonica en bash (los PKGBUILDs la espejan para publicar).
+    # Lista canonica en bash (los PKGBUILDs la espejan).
     # libva-*/intel-media-driver fuera: decode de video, no rendering.
     printf '%s\n' steam wine vkd3d gamescope mangohud vulkan-icd-loader lib32-vulkan-icd-loader
     case "$v" in
@@ -96,18 +91,16 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
     fi
     local -a off=() aur=() p
     for p in "${pkgs[@]}"; do case "$p" in *-bin) aur+=("$p") ;; *) off+=("$p") ;; esac; done
-    # en L2 la parte AUR moriria tras aplicar la oficial (medio-
-    # estado: multilib+mesa instalados, AUR pendiente). Fallar antes de
-    # tocar nada (el dry-run ya volvio arriba).
+    # En L2 la parte AUR moriria tras aplicar la oficial (medio-estado):
+    # fallar antes de tocar nada (el dry-run ya volvio arriba).
     level 2>/dev/null || true
     if [[ "${_ARXY_LEVEL:-}" == 2 && "${#aur[@]}" -gt 0 ]]; then
         die "arxy-gaming exige nivel 1 para su parte AUR (estas en nivel 2; nada aplicado)"
     fi
     # makepkg prohibe root: la parte AUR se compila como usuario ANTES de
-    # elevar (tras need_root ya es tarde). Con ARXY_GAMING_AUR_DONE la
-    # re-ejecucion elevada la salta. Root-directo sin usuario que la haga:
-    # se instala lo oficial y se dice como completar (mismo limite que
-    # 'install --aur' con sudo: nunca funciono).
+    # elevar; ARXY_GAMING_AUR_DONE hace que la re-ejecucion elevada la salte.
+    # Root directo sin usuario que la haga: se instala lo oficial y se dice
+    # como completar (mismo limite que 'install --aur' con sudo).
     if [[ "${#aur[@]}" -gt 0 && -z "${ARXY_GAMING_AUR_DONE:-}" ]]; then
         if [[ "$(id -u)" -ne 0 ]]; then
             cmd_install --aur "${aur[@]}"
@@ -116,9 +109,8 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
     fi
     need_root
     ensure_image
-    # [multilib] para lib32-* (idempotente; mismo idioma sed que el hold).
-    # Guard primero: imagenes frescas ya traen una estanza activa (el
-    # builder la añade); sin guard duplicariamos el registro.
+    # [multilib] para lib32-* (idempotente). Guard primero: imagenes frescas
+    # ya traen la estanza activa y sin el duplicariamos el registro.
     grep -q '^\[multilib\]' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || \
         sed -i -E '/^#\[multilib\]/,/^#?Include/s/^#//' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
     cmd_gpu_stack "arxy-gaming-$vendor" # mesa full idempotente (amd/intel/nvidia)
@@ -133,9 +125,8 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
 }
 
 cmd_install() {
-    # Rewrite arxy-gaming (meta-paquete virtual): va primero para que
-    # --dry-run informe sin root (como doctor --fix). El resto de args
-    # sigue su curso normal tras el gaming (o se ignora en dry-run).
+    # Rewrite arxy-gaming (meta-paquete virtual) primero, para que --dry-run
+    # # informe sin root (como doctor --fix).
     local -a _rest=()
     local _g _dry="" _want="" _branch="" _gaming_count=0
     for _g in "$@"; do
@@ -163,9 +154,8 @@ cmd_install() {
         return
     fi
     [[ $# -ge 1 ]] || die "uso: $PROG install <paquete...>  |  $PROG install --aur <paquete...>"
-    # validar TODO el argv ANTES de root/red. Un "" o "my app"
-    # moria en pacman tras escalar y descargar (~130MB). gpu-amd|gpu-nvidia
-    # son virtuales fijos (siempre validos); el resto pasa check_pkg_name.
+    # Validar TODO el argv ANTES de root/red: un "" o "my app" moria en pacman
+    # tras escalar y descargar (~130MB).
     local -a pkgs=()
     local -a gpu_reqs=()
     local g
@@ -177,9 +167,8 @@ cmd_install() {
     need_root
     data_lock # (la fase AUR-usuario no lo toma: entra por __install-file)
     ensure_image
-    # Nombres virtuales GPU (no son paquetes): se resuelven antes de pacman.
-    # Sin flags pacman aqui (): "--root"/"--config" llegarian a un
-    # pacman privilegiado como opciones (incluye --dry-run fuera de gaming).
+    # GPU: nombres virtuales, no paquetes; se resuelven antes de pacman y sin
+    # flags (): "--root"/"--config" llegarian al pacman privilegiado.
     local _gr
     for _gr in "${gpu_reqs[@]}"; do cmd_gpu_stack "$_gr"; done
     [[ "${#pkgs[@]}" -gt 0 ]] || return 0
@@ -190,12 +179,11 @@ cmd_install() {
     local p
     for p in "${pkgs[@]}"; do
         [[ "$p" == -* ]] && continue
-        # Best-effort honesto: si export muere, avisar (no silencio).
+        # Si export muere, avisar (nunca en silencio).
         cmd_export "$p" || msg "aviso: no pude exportar $p" >&2
     done
     update_desktop_db
-    # Legacy sin tag que export_one no toco (pre-X-Arxy-Pkg): aviso a
-    # stderr, nunca falla el install.
+    # Legacy sin tag que export_one no toco (pre-X-Arxy-Pkg): aviso, nunca falla.
     desktop_migrate_auto || true
     [[ -z "${ARXY_NO_AUTO_DEDUP:-}" ]] && do_dedup auto
     msg "instalado: $*"

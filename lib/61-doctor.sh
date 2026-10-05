@@ -1,5 +1,4 @@
-# --- diagnostico, reparaciones y salida humana
-# Contratos compartidos por la salida humana y JSON.
+# --- diagnostico, reparaciones y salida humana (contratos con 62-json.sh)
 declare -ar HOST_TOOLS=(bwrap curl tar zstd sha256sum awk sed grep mktemp su)
 declare -ar FIX_IDS=(hold-mesa nvidia-align musl-glibc-stack gpu-full-stack staging-cleanup)
 # Cada fix se serializa como {id,applicable,destructive,requires_root,reason,
@@ -25,9 +24,8 @@ cmd_quickstart() { # el siguiente paso segun estado (para quien no lee READMEs)
     fi
 }
 
-# Aviso mesa-mini en AMD/NVIDIA (solo informa, nunca falla).
-# Funcion separada (no inline en doctor): el $() dentro de cmd_doctor
-# dispara un falso positivo SC2319 en shellcheck 0.11.
+# Aviso mesa-mini en AMD/NVIDIA (solo informa). Funcion separada y no inline:
+# el $() dentro de cmd_doctor dispara un falso positivo SC2319 (shellcheck 0.11).
 doctor_gpu() {
     local _g
     _g="$(detect_gpu || true)"
@@ -41,8 +39,8 @@ doctor_gpu() {
     fi
 }
 
-# Sonda pura: llena un array asociativo con status, reason, action y opt_in.
-# Estados: ok | todo | info | skip. No serializa datos con delimitadores.
+# Sonda pura: array asociativo con status, reason, action, opt_in
+# (ok | todo | info | skip). Sin delimitadores para serializar.
 _fix_result() { # <array> <status> <reason> [action] [opt-in]
     local -n target="$1"
     target=([status]="$2" [reason]="$3" [action]="${4:-}" [opt_in]="${5:-}")
@@ -179,10 +177,8 @@ fix_apply() { # <fix-id>: 0 aplicado, 1 fallo, 2 no implementado
     esac
 }
 
-# Fixes propuestos (informan y proponen; solo hold-mesa aplica).
-# Contrato: `doctor --fix` informa (rc 0); `--fix --apply` exige root y
-# aplica no-destructivos; `--fix --apply --confirm` + tty para destructivos.
-# Ya no toca el `ok` de cmd_doctor: devuelve su propio rc.
+# Fixes propuestos (solo hold-mesa aplica). `--fix` informa (rc 0); `--apply`
+# exige root y aplica no-destructivos; `--confirm` + tty para los destructivos.
 doctor_fix() { # [--fix [--apply [--confirm]]]
     [[ "${1:-}" == "--fix" ]] || return 0
     local apply="" confirm="" fails=0
@@ -192,8 +188,8 @@ doctor_fix() { # [--fix [--apply [--confirm]]]
         die "'$PROG doctor --fix --apply' necesita root (sin root solo informa)"
     fi
     [[ -n "$apply" ]] && data_lock # el apply muta (hold/staging/musl)
-    # avisar si hay sesion bridge viva (el apply rota el root).
-    # Guarda command -v: tests que sourcean 60-hw sin 80-bridge no la tienen.
+    # Avisar si hay sesion bridge viva (el apply rota el root). Guardar
+    # command -v: los tests sourcean sin 80-bridge.
     [[ -n "$apply" ]] && command -v bridge_session_notice >/dev/null 2>&1 && bridge_session_notice
     local fid st reason action apply_rc
     local -A fix=()
@@ -227,8 +223,8 @@ doctor_fix() { # [--fix [--apply [--confirm]]]
     done
     local lock="$ARXY_ROOT/var/lib/pacman/db.lck"
     if [[ -f "$lock" ]]; then
-        # ¿pacman real en curso? Por comm de /proc, no por cmdline (pgrep -f
-        # se auto-detecta: nuestra propia linea de comandos menciona pacman).
+        # ¿pacman real? Por comm de /proc, no por cmdline: pgrep -f se
+        # auto-detecta (nuestra propia linea menciona pacman).
         local _run="" _pc
         for _pc in /proc/[0-9]*/comm; do
             [[ -f "$_pc" ]] || continue
@@ -258,7 +254,6 @@ doctor_fix() { # [--fix [--apply [--confirm]]]
     return $fails
 }
 
-# --- doctor / version / ayuda
 cmd_doctor() {
     local args=() a use_json=""
     for a in "$@"; do
@@ -284,12 +279,12 @@ cmd_doctor() {
     fi
     image_ok; local _img=$?
     say $_img "imagen en $ARXY_ROOT"
-    # el recien instalado no recibe "siguiente paso" (la via xbps
-    # no muestra el eco de install.sh). Sugerir setup/quickstart aqui.
+    # El recien instalado no recibe "siguiente paso" (la via xbps no muestra
+    # el eco de install.sh): sugerir setup/quickstart aqui.
     if (( _img != 0 )); then msg "siguiente: $PROG setup (descarga ~130MB) o $PROG quickstart"; fi
     [[ -f "$ARXY_VERSION_FILE" ]] && msg "imagen: $(version_line)"
     [[ -n "$ARXY_IMAGE_URL" ]]; say $? "ARXY_IMAGE_URL configurada"
-    # Deteccion sin dependencias exoticas: solo bwrap funcional (nunca unshare).
+    # Deteccion sin dependencias exoticas: solo bwrap funcional.
     level
     if [[ "$_ARXY_LEVEL" == 1 ]]; then
         echo "[OK]   nivel 1 (bwrap + namespaces)"

@@ -1,7 +1,6 @@
 # --- host-bridge: daemon arxy-bridged
-# Sin socket no hay nada: run_in solo monta si existe (degradacion limpia).
-# Sin auto-arranque salvo que el binario exista y ARXY_NO_BRIDGE no este.
-# Sin allowlist no arranca (default en bash; el C sigue fail-closed).
+# Sin socket no hay nada (run_in solo monta si existe), sin auto-arranque sin
+# binario o con ARXY_NO_BRIDGE, y sin allowlist no arranca.
 bridge_bin() { # ruta al daemon (override ARXY_BRIDGE_BIN para tests)
     if [[ -n "${ARXY_BRIDGE_BIN:-}" ]]; then
         [[ -x "$ARXY_BRIDGE_BIN" ]] || return 1
@@ -25,8 +24,8 @@ bridge_token_path() { # <sock> : token al lado (0600, del daemon)
     echo "${1%.sock}.token"
 }
 
-# Devuelve un socket utilizable o rc 1. Es la única resolución usada por L1
-# y L2: respeta NO_BRIDGE, intenta el daemon y descarta sockets huérfanos.
+# Devuelve un socket utilizable o rc 1. Unica resolucion usada por L1 y L2:
+# respeta NO_BRIDGE, intenta el daemon y descarta sockets huerfanos.
 bridge_active_socket() {
     [[ -z "${ARXY_NO_BRIDGE:-}" ]] || return 1
     ensure_bridge_daemon || true
@@ -51,9 +50,9 @@ bridge_default_allowlist() { # nombres (proton no es binario PATH: va por steam)
     printf '%s\n' steam wine gamescope mangohud xdg-open notify-send
 }
 bridge_resolve_allowlist() { # nombres -> paths absolutos (avisa y salta)
-    # Busqueda manual en PATH (command -v devuelve builtins/funciones,
-    # que no son ficheros ejecutables: 'echo' no resolveria nunca).
-    # IFS acotado con local (el unset global destruia el IFS del llamador).
+    # Busqueda manual en PATH (command -v devuelve builtins/funciones, que no
+    # son ejecutables: 'echo' no resolveria nunca). IFS con local: el unset
+    # global destruia el IFS del llamador.
     local n d p
     local IFS=':'
     while IFS= read -r n; do
@@ -84,9 +83,8 @@ bridge_env_l2() { # L2: exporta el bridge sin namespace, best-effort
     return 0
 }
 bridge_session_notice() { # para doctor --fix --apply (yMsgs): avisa
-    # si hay sesion bridge viva, ya que el apply puede rotar el root bajo
-    # apps en curso. Solo certeza (socket + pid vivo): sin pidfile no se
-    # puede confirmar y se calla. Nunca falla (rc 0 siempre).
+    # Avisar si hay sesion bridge viva: el apply puede rotar el root bajo apps
+    # en curso. Solo certeza (socket + pid vivo); nunca falla (rc 0).
     local _bsock
     _bsock="$(bridge_sock_path)"
     [[ -S "$_bsock" ]] || return 0
@@ -106,9 +104,8 @@ ensure_bridge_daemon() { # arranca si no hay vivo (best-effort: nunca falla run)
     exec 9>"$lock" 2>/dev/null || return 0
     flock -w 10 9 2>/dev/null || { exec 9>&-; return 0; } # otro arranca: el sigue sin socket esta vez
     bridge_pid_alive "$pidf" && { exec 9>&-; return 0; } # re-check tras lock
-    # FD 9 se cierra ANTES del exec bwrap del llamador (si sobreviviera,
-    # el sandbox heredaria el lock hasta que la app muera). El arranque
-    # hijo no hereda el FD: cmd_host_bridge reabre lo que necesite.
+    # FD 9 se cierra ANTES del exec bwrap del llamador (si sobreviviera, el
+    # sandbox heredaria el lock hasta que la app muera).
     "$SELF" host-bridge --daemon >/dev/null 2>&1
     local rc=$?
     exec 9>&-
@@ -144,10 +141,9 @@ cmd_host_bridge() { # [--daemon|--stop|--status] [--socket P] [--allowed-cmd B..
             echo "inactivo (buscado en $sock)"; return 1 ;;
         --stop)
             if bridge_pid_alive "$pidf"; then
-                # TERM puede tardar (drena colas); esperar evita borrar el
-                # pidfile con vivo dentro (el --daemon siguiente
-                # duplicaba instancia). Sin muerte: KILL; si ni asi,
-                # no mentir "detenido".
+                # TERM puede tardar (drena colas): esperar evita borrar el
+                # pidfile con vivo dentro (el --daemon siguiente duplicaba
+                # instancia). Sin muerte: KILL; si ni asi, no mentir.
                 kill "$(cat "$pidf")" 2>/dev/null || true
                 local _i=0
                 while [[ $_i -lt 50 ]] && bridge_pid_alive "$pidf"; do sleep 0.1; _i=$((_i+1)); done
@@ -187,11 +183,10 @@ cmd_host_bridge() { # [--daemon|--stop|--status] [--socket P] [--allowed-cmd B..
         local tok
         tok="$(bridge_token_new)"
         [[ -n "$tok" ]] || die "sin entropia para token (/dev/urandom)"
-        # Token en argv (visible en ps): alcance UID por socket 0600 +
-        # SO_PEERCRED; otro UID no puede usarlo aunque lo lea.
-        # Fondo simple (&): $! es el pid real (setsid bifurcaria y el
-        # pidfile mentiria). stderr a log efimero: si no levanta, el
-        # motivo del C (p. ej. not executable) llega al die.
+        # Token en argv (visible en ps): el alcance real es el socket 0600 +
+        # SO_PEERCRED. Fondo simple (&): $! es el pid real (setsid bifurcaria
+        # y el pidfile mentiria). stderr a log efimero: si no levanta, el
+        # motivo del C llega al die.
         local _blog
         _blog="$(mktemp "${sock%.sock}.blog.XXXXXX" 2>/dev/null || true)"
         "$bin" --socket "$sock" --token "$tok" "${bargs[@]}" >"$_blog" 2>&1 &

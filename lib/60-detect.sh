@@ -1,7 +1,6 @@
 # --- deteccion de plataforma y hardware (funciones puras)
 # GPU discreta que mesa-mini (sin LLVM) no acelera: amd|nvidia|"". Via /sys
-# (lspci puede no existir en hosts minimos). ARXY_SYS_DRM_PATH inyecta un
-# /sys falso para tests sin hardware (ver tests/test-gpu-drm.sh).
+# (lspci puede faltar); ARXY_SYS_DRM_PATH inyecta un /sys falso para tests.
 detect_gpu() {
     local base="${ARXY_SYS_DRM_PATH:-/sys/class/drm}" v
     for v in "$base"/card*/device/vendor; do
@@ -15,8 +14,8 @@ detect_gpu() {
 }
 
 is_mesa_mini() { # mini = build externo sin firma conocida
-    # Sin pipe directo: con pipefail, `prod | grep -q` miente (SIGPIPE
-    # 141 cierra el productor antes; regla 5). Capturar y grepear después.
+    # Sin pipe directo: con pipefail `prod | grep -q` miente (SIGPIPE 141
+    # cierra el productor antes; regla 5). Capturar y grepear despues.
     local _qi
     _qi="$(run_pacman -Qi mesa 2>/dev/null || true)"
     grep -q '^Packager.*Unknown' <<<"$_qi"
@@ -26,13 +25,10 @@ mesa_hold_active() { # IgnorePkg=mesa en pacman.conf (mini protegido del update)
     grep -q '^IgnorePkg.*mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null
 }
 
-# Mocks de deteccion y salidas componibles sin jq: kmods en una línea
-# (espacios), dev_nodes una
-# ruta por línea, el resto valor único o vacío. Mocks (patrón ARXY_SYS_DRM_PATH):
-#   ARXY_SYS_ROOT=""  prefijo de /proc y /sys (falso en tests)
-#   ARXY_DEV_PATH="/dev"  dir de dispositivos (falso en tests)
-#   ARXY_LIB_DIR="/lib"  dir de loaders (falso en tests)
-#   ARXY_LIB64_DIR="/lib64"  idem 64 bits (falso en tests)
+# Mocks de deteccion (prefijos falsos para tests): ARXY_SYS_ROOT (/proc, /sys),
+# ARXY_DEV_PATH (/dev), ARXY_LIB_DIR, ARXY_LIB64_DIR (loaders), ARXY_SYS_DRM_PATH
+# (/sys/class/drm). Salidas sin jq: kmods en una linea (espacios), dev_nodes una
+# ruta por linea, el resto valor unico o vacio.
 detect_libc() { # glibc|musl|unknown (ambos loaders -> decide ldd: el primario)
     local d="${ARXY_LIB_DIR:-/lib}" d64="${ARXY_LIB64_DIR:-/lib64}"
     local musl="" glibc="" m
@@ -84,9 +80,9 @@ cpu_tier() { # [cpuinfo] [arch] [ldso] : v3|v4|znver4 (vacio + rc 1 si <v3 o no 
     line="$(grep -m1 '^flags[[:space:]]*:' "$cpuinfo" 2>/dev/null || true)"
     [[ -n "$line" ]] || return 1
     local fl=" ${line#*:} "
-    # Nivel base: el ld-linux del host manda (lee CPUID directo, canonico
-    # glibc como la wiki CachyOS). Las flags van enmascaradas en VMs y no
-    # vetan. Sin ld-linux (musl) caemos a flags estrictas (conservador).
+    # El ld-linux del host manda (lee CPUID directo, canonico glibc como la
+    # wiki CachyOS): las flags van enmascaradas en VMs y no vetan. Sin ld-linux
+    # (musl) caemos a flags estrictas (conservador).
     local ldso="${3:-}" _lp
     if [[ -z "$ldso" ]]; then
         for _lp in /lib64/ld-linux-x86-64.so.2 /lib/ld-linux-x86-64.so.2 /usr/lib/ld-linux-x86-64.so.2; do
@@ -113,16 +109,16 @@ cpu_tier() { # [cpuinfo] [arch] [ldso] : v3|v4|znver4 (vacio + rc 1 si <v3 o no 
         [[ -n "$ok" ]] && v4=1
     fi
     [[ -n "$v3" ]] || return 1
-    # Hibridos Intel (Alder Lake+): reportan v4 pero sin AVX512 usable
-    # (wiki CachyOS); modelos heterogeneos => tope v3.
-    # ponytail: heterogeneidad como proxy de hibrido; tabla de modelos si da falsos.
+    # Hibridos Intel (Alder Lake+): reportan v4 pero sin AVX512 usable (wiki
+    # CachyOS) => tope v3. Heterogeneidad como proxy de hibrido (tabla de
+    # modelos si da falsos).
     local nmodels
     nmodels="$(grep '^model[[:space:]]*:' "$cpuinfo" 2>/dev/null | sort -u | grep -c . || true)"
     if [[ "${nmodels:-1}" -gt 1 ]]; then echo v3; return 0; fi
     if [[ -z "$v4" ]]; then echo v3; return 0; fi
     local vendor
     vendor="$(grep -m1 '^vendor_id' "$cpuinfo" 2>/dev/null || true)"
-    # ponytail: znver4 ~= VBMI en AMD (sin gcc para -march=native en imagen ni host).
+    # znver4 ~= VBMI en AMD (sin gcc para -march=native).
     if [[ "$vendor" == *AuthenticAMD* && "$fl" == *" avx512vbmi "* ]]; then echo znver4; return 0; fi
     echo v4
 }

@@ -80,6 +80,10 @@ AMD/NVIDIA, reporta con `arxy doctor --json` + `arxy run eglinfo -B` +
 Upgrade: verificar en HW real cuando haya acceso; si falla, fix en
 commit con mensaje ampliado.
 
+El driver **propietario** de NVIDIA esta fuera de alcance en 1.x: solo
+nouveau via Mesa. `install gpu-nvidia`/`arxy-gaming-nvidia` asumen el
+modulo propietario ya cargado en el host (§2).
+
 ## 11. Tarball vigente con `[multilib]` duplicado
 
 El builder añadía la estanza en vez de descomentar (`create-arch-`
@@ -159,3 +163,36 @@ y reportar.
 
 Riesgo actual: bajo. El delta entre 0.5.0_1 y 0.5.0_2 son fixes de UX
 sin cambios estructurales.
+
+## 17. Sin aislamiento de seguridad
+
+arxy es una capa de compatibilidad para no pelear con `glibc`, no una
+jaula. En L1 el namespace no restringe lo que el usuario puede hacer (no
+es un confinement de privilege escalation), y L2 no aisla nada en
+absoluto: `run` inyecta el `ld-linux` del subsistema. No ejecutar software
+no confiable dentro de arxy esperando aislamiento.
+
+Upgrade: no esta contemplado; aislar de verdad requiere usuario
+dedicado/VM, no un contenedor ligero.
+
+## 18. Daemons de sistema y D-Bus compartido
+
+El subsistema no tiene `systemd` ni daemons root persistentes: TeamViewer,
+AnyDesk o similar fallan al arrancar. Ademas `/run` y el bus de sesion
+son los del host, asi que un cliente VPN dentro (p. ej.
+`protonvpn-app`) pelea con el cliente del host por la misma instancia.
+`arxy doctor --json` no lo puede detectar: es una consecuencia de
+compartir el bus, no del estado del host.
+
+Upgrade: namespace propio de D-Bus + unit de usuario cuando haya un
+consumidor real.
+
+## 19. Restricciones propias del Nivel 2
+
+En L2 el `pacman -S/-U/-R` crudo dentro de `arxy shell` esta bloqueado a
+proposito (usa `arxy install/remove/update`). `CheckSpace` esta off bajo
+chroot y el manejo de rutas absolutas de cache en apps GTK/Qt es best
+-effort. El codigo que parsea rutas debe funcionar con las dos formas de
+salida (`-Qlq --root` devuelve rutas prefijadas en L2).
+
+Upgrade: sin plan; es el precio de no depender de user namespaces.

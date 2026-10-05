@@ -28,23 +28,21 @@ cmd_install_aur() {
     if [[ "${#failed[@]}" -gt 0 ]]; then
         die "no pude construir/instalar AUR: '${failed[*]}' (mira los errores de arriba; reintenta de a uno con '$PROG install --aur <paquete>')"
     fi
-    # El hook de usuario es best-effort; una mutación root cubrirá /usr después.
+    # Hook de usuario best-effort: una mutacion root cubrira /usr despues.
     [[ -w "$ARXY_DATA" && -z "${ARXY_NO_AUTO_DEDUP:-}" ]] && do_dedup auto
     msg "instalado (AUR): $*"
 }
 
-# Prepara makepkg y usa paru solo cuando funciona; git es el fallback.
 ensure_aur_env() {
     [[ -d "$ARXY_BUILD" ]] || die "falta $ARXY_BUILD: ejecuta 'sudo $PROG setup' para crearlo"
-    # Herramientas de build: las que falten se instalan solas (una vez).
-    # strip vive en binutils (nombre distinto al binario).
+    # Build tools: las que falten se instalan solas (strip vive en binutils).
     local t missing_tools=()
     for t in fakeroot strip git curl pkgconf patch debugedit jq; do
         in_sys "/usr/bin/$t" --version >/dev/null 2>&1 || {
             [[ "$t" == "strip" ]] && missing_tools+=("binutils") || missing_tools+=("$t")
         }
     done
-    # makepkg viene con pacman (siempre presente si la imagen es valida).
+    # makepkg viene con pacman.
     in_sys /usr/bin/makepkg --version >/dev/null 2>&1 || \
         die "imagen rota: sin makepkg"
     if [[ "${#missing_tools[@]}" -gt 0 ]]; then
@@ -71,7 +69,7 @@ aur_build() { # <pkg> -> ruta paquete construido
     local work_host="$ARXY_BUILD/aur/$pkg" work_ns="$NS_BUILD/aur/$pkg"
     rm -rf "${work_host:?}"
     mkdir -p "$ARXY_BUILD/aur" || die "no puedo escribir en $ARXY_BUILD"
-    # Dentro del namespace solo existe work_ns.
+
     if [[ -n "${HAVE_PARU:-}" ]]; then
         in_bwrap /usr/bin/paru --noconfirm -G "$pkg" "$work_ns" >&2 2>/dev/null || \
         in_bwrap /usr/bin/git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$work_ns" >&2 || \
@@ -84,7 +82,7 @@ aur_build() { # <pkg> -> ruta paquete construido
     if [[ -f "$work_host/.SRCINFO" ]]; then
         local md missing=() d selfpkgs
         md="$(grep -E '^[[:space:]]*(makedepends?|depends?) =' "$work_host/.SRCINFO" 2>/dev/null | sed 's/^[^=]*=[[:space:]]*//' | sort -u || true)"
-        # Excluir subpaquetes del mismo pkgbase: no están en repositorios.
+        # Excluir subpaquetes del mismo pkgbase: no estan en los repos.
         selfpkgs="$(grep -E '^[[:space:]]*pkgname =' "$work_host/.SRCINFO" 2>/dev/null | sed 's/.*=[[:space:]]*//' | sort -u || true)"
         while IFS= read -r d; do
             d="${d%%[<>=]*}" # quita restricciones de version (gcc>=13 -> gcc)
@@ -93,19 +91,19 @@ aur_build() { # <pkg> -> ruta paquete construido
             in_bwrap /usr/bin/pacman -Q "$d" >/dev/null 2>&1 || missing+=("$d")
         done <<<"$md"
         if [[ "${#missing[@]}" -gt 0 ]]; then
-            # stdout está reservado para la ruta del paquete final.
+            # stdout reservado a la ruta del paquete final.
             msg "deps de $pkg: ${missing[*]}" >&2
             as_root "$SELF" install "${missing[@]}" >&2 || \
                 msg "aviso: alguna dep no esta en repos oficiales; sigo y que decida makepkg" >&2
         fi
     fi
-    # Los -bin usan una copia de makepkg.conf sin debug ni LTO.
+    # Los -bin usan copia de makepkg.conf sin debug ni LTO.
     cp "$ARXY_ROOT/etc/makepkg.conf" "$work_host/makepkg-arxy.conf" 2>/dev/null || \
         die "falta /etc/makepkg.conf en la imagen"
     printf '%s\n' 'OPTIONS=(strip docs !libtool !staticlibs emptydirs zipman purge !debug !lto)' \
         >> "$work_host/makepkg-arxy.conf"
     mkdir -p "$work_host/bin"
-    # Shims locales evitan chown bajo userns y admiten sintaxis tar antigua.
+    # Shims locales: evitan chown bajo userns y admiten tar antiguo.
     cat > "$work_host/bin/bsdtar" <<'SHIM'
 #!/bin/sh
 case "$1" in
@@ -123,7 +121,7 @@ case "$1" in
   *) exec /usr/bin/bsdtar "$@" ;;
 esac
 SHIM
-    # GNU tar antiguo recibe --no-same-owner en la posición que acepta.
+    # GNU tar antiguo: --no-same-owner donde lo acepta.
     cat > "$work_host/bin/tar" <<'SHIM'
 #!/bin/sh
 case "$1" in
@@ -131,7 +129,7 @@ case "$1" in
   *) exec /usr/bin/tar "$@" --no-same-owner ;;
 esac
 SHIM
-    # cp -a necesita anular ownership después de -a, salvo opción explícita.
+    # cp -a: anular ownership despues de -a salvo opcion explicita.
     cat > "$work_host/bin/cp" <<'SHIM'
 #!/bin/sh
 for a in "$@"; do
@@ -143,10 +141,10 @@ done
 exec /usr/bin/cp "$@"
 SHIM
     chmod +x "$work_host/bin/bsdtar" "$work_host/bin/tar" "$work_host/bin/cp"
-    # install filtra únicamente opciones de propietario/grupo.
+    # install: filtra solo opciones de propietario/grupo.
     cat > "$work_host/bin/install" <<'SHIM'
 #!/bin/sh
-# Filtro con centinela (rotar sin recentinela reordena/duplica).
+# Filtro con centinela (rotar sin el reordena/duplica).
 sent="__shim_end_$$"
 set -- "$@" "$sent"
 while [ $# -gt 0 ] && [ "$1" != "$sent" ]; do
@@ -161,16 +159,16 @@ exec /usr/bin/install "$@"
 SHIM
     chmod +x "$work_host/bin/install"
     local build_ok=0
-    # ARXY_GPG_CHECK activa la verificación PGP de makepkg.
+    # ARXY_GPG_CHECK activa el PGP de makepkg.
     local -a pgp_args=(--skippgpcheck)
     [[ -n "${ARXY_GPG_CHECK:-}" ]] && pgp_args=()
-    # Argumentos estructurados, sin programa bash -c intermedio.
+
     in_bwrap --chdir "$work_ns" --setenv PATH "$work_ns/bin:$PATH" -- \
         /usr/bin/makepkg --config "$work_ns/makepkg-arxy.conf" --noconfirm \
         "${pgp_args[@]}" >&2 && build_ok=1
     rm -rf "${work_host:?}/bin" # shims solo para este build: fuera siempre
     [[ $build_ok -eq 1 ]] || die "fallo al compilar '$pkg' con makepkg (mira el error de arriba; el codigo queda en '$ARXY_BUILD/aur/$pkg' para depurar)"
-    # En pkgbase divididos, excluir artefactos de paquetes hermanos.
+    # pkgbase divididos: excluir artefactos de los hermanos.
     local sibs sib cand ok
     sibs="$(grep -E '^[[:space:]]*pkgname =' "$work_host/.SRCINFO" 2>/dev/null | sed 's/.*=[[:space:]]*//' | sort -u || true)"
     f=""
@@ -187,7 +185,6 @@ SHIM
     echo "$f"
 }
 
-# Paso privilegiado: traduce la ruta host, instala y etiqueta lanzadores.
 cmd_install_file() {
     need_root
     [[ $# -eq 1 && -f "${1:-}" ]] || die "uso interno: $PROG __install-file <paquete.pkg.tar.zst>"

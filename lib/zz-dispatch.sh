@@ -1,11 +1,10 @@
-# --- dispatch
 main() {
     [[ $# -ge 1 ]] || { cmd_help; return 0; }
     local cmd="$1"
     shift
-    # --help tras el comando: ayuda global. Evita que 'install --help' intente
-    # instalar un paquete llamado --help. Ayuda por-comando no existe a proposito
-    # (cada mal uso ya imprime su 'uso:' de una linea).
+    # --help tras el comando: ayuda global (evita que 'install --help' intente
+    # instalar un paquete llamado --help). Ayuda por-comando no existe a
+    # proposito: cada mal uso ya imprime su 'uso:' de una linea.
     if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
         cmd_help
         return 0
@@ -40,8 +39,8 @@ main() {
     esac
 }
 
-# La biblioteca generada se puede sourcear en tests/herramientas sin ejecutar
-# el router. Como programa conserva exactamente el mismo punto de entrada.
+# La biblioteca generada se sourcea en tests sin ejecutar el router; como
+# programa conserva el mismo punto de entrada.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     main "$@"
 fi

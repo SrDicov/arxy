@@ -1,9 +1,8 @@
 # --- GPU real: heuristica NVIDIA en bash, deteccion pura.
-# El montaje vive en run_in (lib/10-level.sh: solo run/shell; pacman via
-# in_bwrap no toca GPU). Salidas componibles: una entrada por linea. Mocks en AGENTS.md (todos probativos: sin mock y sin
-# NVIDIA, vacio sin fallar). file(1) ya es dependencia declarada del paquete.
-# NOTA: el driver Xorg (xorg/modules) no se escanea (sin mock propio); su
-# MAPEO si esta en nvidia_guest_path (se instala por ruta conocida).
+# El montaje vive en run_in (lib/10-level.sh): solo run/shell; pacman via
+# in_bwrap no toca GPU. Salidas componibles: una entrada por linea. Mocks en
+# AGENTS.md. file(1) ya es dependencia declarada. El driver Xorg (xorg/modules)
+# no se escanea: su mapeo esta en nvidia_guest_path (ruta conocida).
 
 elf_class() { # <fichero> : 64|32|"" (vacio = no ELF o file ausente)
     local f="$1" cls=""
@@ -14,7 +13,7 @@ elf_class() { # <fichero> : 64|32|"" (vacio = no ELF o file ausente)
         "ELF 64-bit") echo 64; return 0 ;;
         "ELF 32-bit") echo 32; return 0 ;;
     esac
-    # Fallback por path (sin file): solo 32 es seguro de adivinar; el resto
+    # Fallback por path (sin file): solo 32 es seguro de adivinar; lo
     # desconocido se salta (nunca montar algo mal clasificado).
     case "$f" in
         */lib32/*|*/i386-linux-gnu/*) echo 32; return 0 ;;
@@ -25,8 +24,7 @@ elf_class() { # <fichero> : 64|32|"" (vacio = no ELF o file ausente)
 
 nvidia_libs() { # "class<TAB>path" por lib NVIDIA del host ("" = ninguna)
     # Patrones con 'nvidia'/'cuda' obligatorios: 'libGLESv*.so*' a secas
-    # cazaria mesa y la sombrearia al montar. Symlinks saltados (el real ya
-    # sale); dedup por inodo para hardlinks.
+    # cazaria mesa. Symlinks saltados (el real ya sale); dedup por inodo.
     local r="${ARXY_NVIDIA_LIB_ROOT:-/usr/lib}"
     local r64="${ARXY_NVIDIA_LIB_ROOT64:-/usr/lib64}"
     local r32="${ARXY_NVIDIA_LIB_ROOT32:-/usr/lib32}"
@@ -78,14 +76,13 @@ nvidia_icd_rewrite() { # <host_icd> <guest_lib> : JSON con library_path reescrit
     lp="$(nvidia_icd_library "$icd")"
     if [[ -z "$lp" ]]; then cat "$icd" 2>/dev/null || true; return 0; fi
     # Sustitucion literal bash (patron entrecomillado = sin globs; en el
-    # reemplazo & y \ son literales, al reves que en sed): aguantan
-    # espacios, comillas, & y backslashes en rutas.
+    # reemplazo & y \ son literales, al reves que en sed).
     content="$(cat "$icd" 2>/dev/null || true)"
     printf '%s\n' "${content//"$lp"/"$glib"}"
     return 0
 }
-# TODO: rewrite solo 64-bit (el loader de 32-bit necesitaria su propio
-# manifiesto); segundo manifiesto cuando alguien corra Vulkan 32-bit aqui.
+# TODO: rewrite solo 64-bit (el loader 32-bit necesitaria su manifiesto);
+# upgrade con un segundo manifiesto cuando alguien corra Vulkan 32-bit aqui.
 
 nvidia_guest_path() { # <host_path> <class> : path en rootfs ("" = inclasificable)
     local h="$1" cls="${2:-}" lib
@@ -121,11 +118,10 @@ nvidia_mounts() { # "host<TAB>guest" (libs + ICDs + devices; "" = nada)
 }
 
 gpu_stack_pkgs() { # un paquete por linea: ICD Vulkan glibc del rootfs
-    # GL/DRI ya lo trae mesa-mini (iris/radeonsi/nouveau presentes);
-    # falta el ICD Vulkan del vendor (+lib32; pacman cierra dependencias).
-    # Sin discreta se asume Intel (la iGPU no reporta vendor a drm).
-    # NVIDIA pinneado al modulo del host (como arxy_gaming_pkgs);
-    # sin version legible se muere claro (un utils sin pin rompe el GL).
+    # GL/DRI ya lo trae mesa-mini (iris/radeonsi/nouveau); falta el ICD Vulkan
+    # del vendor (+lib32). Sin discreta se asume Intel (la iGPU no reporta
+    # vendor a drm). NVIDIA se pinea al modulo del host: sin version legible,
+    # un utils sin pin rompe el GL.
     local ver=""
     case "$(detect_gpu || true)" in
         nvidia) ver="$(detect_nvidia_ver || true)"

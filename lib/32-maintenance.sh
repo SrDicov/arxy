@@ -38,9 +38,8 @@ cmd_update() {
     return 0 # [[...]] && ... final daria rc=1 con el hook desactivado
 }
 
-# Limpieza: dry-run por defecto (informa), --apply ejecuta.
-# Solo borra regenerables (cache, builds, restos): jamas toca pacman.conf
-# (IgnorePkg y cia sobreviven) ni el rootfs.
+# Limpieza: dry-run por defecto (informa), --apply ejecuta. Solo borra
+# regenerables (cache, builds, restos): jamas toca pacman.conf ni el rootfs.
 cmd_clean() { # [--apply]
     local apply=""
     [[ "${1:-}" == "--apply" ]] && apply=1
@@ -79,12 +78,10 @@ cmd_clean() { # [--apply]
     msg "limpieza hecha"
 }
 
-# Dedup por hardlinks: runtimes identicos entre apps (Electron) ocupan N
-# veces su tamaño; linkearlos ahorra sin coste de lectura ni FUSE.
-# pacman reemplaza ficheros al actualizar (no escribe in-place): el link se
-# rompe solo y cada app vuelve a ser independiente. Es correcto.
-# Si una app modificara un fichero linkeado afectaria a las demas; en /usr
-# no ocurre en la practica (ver README).
+# Dedup por hardlinks: runtimes identicos entre apps (Electron) ocupan N veces
+# su tamaño; linkearlos ahorra sin coste de lectura ni FUSE. pacman reemplaza
+# ficheros al actualizar (no escribe in-place): el link se rompe solo y cada app
+# vuelve a ser independiente. Es correcto.
 # TODO: nombres con \n quiebran el parseo (asumimos que /usr no los tiene); upgrade: find -print0 + cksum --zero.
 do_dedup() ( # [auto] : subshell; auto solo informa si ahorra >=10MB
     local auto="${1:-}"
@@ -92,9 +89,9 @@ do_dedup() ( # [auto] : subshell; auto solo informa si ahorra >=10MB
     local work=""
     work="$(mktemp -d "$ARXY_DATA/.arxy-dedup.XXXXXX" 2>/dev/null)" || { msg "aviso: sin dedup (no hay temporal en $ARXY_DATA)" >&2; return 0; }
     trap '[[ -n "${work:-}" ]] && rm -rf "$work"' EXIT
-    # cksum POSIX (stat -c no existe en BSD, find -printf no existe en busybox):
-    # CRC+tamaño en una pasada; sha256 solo confirma candidatos.
-    # -links 1 = idempotente (lo ya linkeado se salta solo); -type f excluye symlinks.
+    # cksum POSIX (stat -c no existe en BSD, find -printf no en busybox):
+    # CRC+tamaño en una pasada, sha256 solo confirma candidatos.
+    # -links 1 = idempotente; -type f excluye symlinks.
     find "$ARXY_ROOT/usr" -type f -links 1 -exec cksum {} + 2>/dev/null | sort -k1,1n -k2,2n >"$work/all"
     awk '{print $1, $2}' "$work/all" | uniq -d >"$work/dups"
     local key size line h f first lasth
@@ -107,7 +104,7 @@ do_dedup() ( # [auto] : subshell; auto solo informa si ahorra >=10MB
         while IFS= read -r line; do
             h="${line%% *}"; f="${line#* }"; f="${f# }"; f="${f#\*}"
             if [[ "$h" == "$lasth" && -n "$first" ]]; then
-                # cmp antes de ln: si algo cambio entre cksum y aqui, no linkear distintos.
+                # cmp antes de ln: si algo cambio, no linkear distintos.
                 if cmp -s "$first" "$f" 2>/dev/null && ln -f "$first" "$f" 2>/dev/null; then
                     saved=$((saved + size)); linked=$((linked + 1))
                 fi
