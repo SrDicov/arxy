@@ -77,9 +77,9 @@ cmd_gc --apply --yes >/dev/null 2>&1
 
 echo "== T3: --json no purga (mtimes intactos)"
 clean; mkroot "$R.old"; echo x > "$R.old/usr/bin/bash"
-m1="$(stat -c %Y "$R.old/usr/bin/bash")"
+m1="$(stat -c %Y "$R.old/usr/bin/bash" 2>/dev/null || stat -f %m "$R.old/usr/bin/bash")"
 cmd_gc --json >/dev/null 2>&1
-[[ "$(stat -c %Y "$R.old/usr/bin/bash")" == "$m1" ]] && ok "T3 json no toca" || no "T3 json no toca"
+[[ "$(stat -c %Y "$R.old/usr/bin/bash" 2>/dev/null || stat -f %m "$R.old/usr/bin/bash")" == "$m1" ]] && ok "T3 json no toca" || no "T3 json no toca"
 [[ -d "$R.old" ]] && ok "T3 json no purga" || no "T3 json no purga"
 
 echo "== T4: texto informa sin aplicar"

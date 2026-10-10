@@ -52,7 +52,8 @@ if XDG_DATA_HOME="$T/xdg" ARXY_ROOT="$T/root" "$ARXY_BIN" desktop --migrate >/de
 else
     no "CLI desktop --migrate"
 fi
-if XDG_DATA_HOME="$T/xdg" ARXY_ROOT="$T/root" "$ARXY_BIN" desktop --migrate 2>&1 | grep -q 'migrados'; then
+_mig_out="$(XDG_DATA_HOME="$T/xdg" ARXY_ROOT="$T/root" "$ARXY_BIN" desktop --migrate 2>&1)"
+if grep -q 'migrados' <<<"$_mig_out"; then
     ok "CLI informa resumen"
 else
     no "CLI informa resumen"

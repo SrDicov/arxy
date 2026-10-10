@@ -53,8 +53,10 @@ smoke "gc con flag mala" "uso: arxy gc" -- gc --badflag
 smoke "doctor con flag mala" "uso: arxy doctor" -- doctor --badflag
 smoke "bridge con flag mala" "uso: arxy host-bridge" -- host-bridge --badflag
 smoke "alias i -> pkg" "uso: arxy install" -- i
-# help imprime y sale 0 (unico caso de exito aqui).
-if ARXY_ROOT=/tmp/arxy-bundle-test HOME=/tmp/arxy-bundle-test-home ./src/arxy help 2>&1 | grep -q "Uso: arxy"; then
+# help imprime y sale 0 (unico caso de exito aqui). Sin pipe directo:
+# con pipefail, si grep -q cierra el pipe antes, el CLI muere con SIGPIPE.
+_help_out="$(ARXY_ROOT=/tmp/arxy-bundle-test HOME=/tmp/arxy-bundle-test-home ./src/arxy help 2>&1)"
+if grep -q "Uso: arxy" <<<"$_help_out"; then
     echo "PASS: help"
 else echo "FAIL: help"; FAIL=$((FAIL+1)); fi
 # flag desconocida y rama desconocida (-> run). Sin pipe a grep -q bajo

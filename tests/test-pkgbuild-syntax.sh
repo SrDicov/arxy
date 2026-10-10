@@ -27,16 +27,22 @@ for v in nvidia amd intel; do
     else
         mapfile -t _bash < <(arxy_gaming_pkgs "$v" 2>/dev/null)
     fi
+    # Sin productor|grep -q: con pipefail, si grep -q cierra el pipe antes,
+    # el printf muere con SIGPIPE (141) y el if falla en falso (flake).
+    # Se captura en variable y se grepea despues (regla de AGENTS.md).
+    _bash_text="$(printf '%s\n' "${_bash[@]}")"
     while IFS= read -r dep; do
         [[ -z "$dep" ]] && continue
-        if printf '%s\n' "${_bash[@]}" | grep -qxF "$dep"; then :;
+        if grep -qxF "$dep" <<<"$_bash_text"; then :;
         else echo "FAIL: $v: depends $dep sin espejo bash"; FAIL=$((FAIL+1)); fi
     done < <( ( . "packaging/aur/arxy-gaming-$v/PKGBUILD"; printf '%s\n' "${depends[@]}" ) 2>/dev/null )
     echo "PASS: coherencia arxy-gaming-$v"
 done
 if command -v namcap >/dev/null 2>&1; then
     for p in packaging/aur/*/PKGBUILD; do
-        if namcap "$p" 2>&1 | grep -qE "^(E|W).*PKGBUILD"; then
+        # Sin pipe directo (regla pipefail/SIGPIPE de AGENTS.md).
+        _nc_out="$(namcap "$p" 2>&1)"
+        if grep -qE "^(E|W).*PKGBUILD" <<<"$_nc_out"; then
             echo "FAIL: namcap $p"; FAIL=$((FAIL+1))
         else echo "PASS: namcap $p"; fi
     done

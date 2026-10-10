@@ -74,9 +74,9 @@ migrate_version_file >/dev/null 2>&1 && ok "migra rc 0" || no "migra rc 0"
 grep -q '"image": "file:///vieja.tar.zst"' "$D/version" 2>/dev/null && ok "migra preserva url" || no "migra preserva url"
 grep -q '"created_at": "2020-01-01T00:00:00Z"' "$D/version" 2>/dev/null && ok "migra preserva fecha" || no "migra preserva fecha"
 grep -q '"format": 1' "$D/version" 2>/dev/null && ok "migra pone format" || no "migra pone format"
-a="$(sha256sum <"$D/version")"; m="$(stat -c %Y "$D/version")"; sleep 1
+a="$(sha256sum <"$D/version")"; m="$(stat -c %Y "$D/version" 2>/dev/null || stat -f %m "$D/version")"; sleep 1
 migrate_version_file >/dev/null 2>&1
-if [[ "$(sha256sum <"$D/version")" == "$a" ]] && [[ "$(stat -c %Y "$D/version")" == "$m" ]]; then ok "migra idempotente"; else no "migra idempotente"; fi
+if [[ "$(sha256sum <"$D/version")" == "$a" ]] && [[ "$(stat -c %Y "$D/version" 2>/dev/null || stat -f %m "$D/version")" == "$m" ]]; then ok "migra idempotente"; else no "migra idempotente"; fi
 rm -f "$D/version"
 if migrate_version_file 2>/dev/null && [[ ! -e "$D/version" ]]; then ok "ausente no falla ni crea"; else no "ausente no falla ni crea"; fi
 printf 'ni-json-ni-plano' > "$D/version"

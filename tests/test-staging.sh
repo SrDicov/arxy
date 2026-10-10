@@ -42,8 +42,9 @@ echo "== T0: limpio -> skip (applicable false)"
 staging_clean
 fix_probe staging-cleanup FIX
 [[ "${FIX[status]}" == skip && "${FIX[reason]}" == "sin staging huerfano" ]] && ok "T0 probe skip" || no "T0 probe skip"
-fixes_json 2>/dev/null | grep -q '"id": "staging-cleanup", "applicable": false' && ok "T0 json applicable false" || no "T0 json applicable false"
-fixes_json 2>/dev/null | grep -q '"id": "staging-cleanup"[^}]*"phase": null' && ok "T0 json phase null" || no "T0 json phase null"
+fixes_json 2>/dev/null >"$D/fixes.json"
+grep -q '"id": "staging-cleanup", "applicable": false' "$D/fixes.json" && ok "T0 json applicable false" || no "T0 json applicable false"
+grep -q '"id": "staging-cleanup"[^}]*"phase": null' "$D/fixes.json" && ok "T0 json phase null" || no "T0 json phase null"
 
 echo "== T1: root.new con root valido -> borrar"
 staging_clean; arxy_mkroot "$R" bueno; mkdir -p "$R.new.111"

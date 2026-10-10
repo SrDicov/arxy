@@ -182,5 +182,26 @@ out23="$("$BIN" host-bridge --stop --socket "$D/k.sock" 2>&1)"; rc23=$?
 kill -9 "$_kpid" 2>/dev/null || true
 [[ $rc23 -eq 0 ]] && grep -q "detenido" <<<"$out23" && ! kill -0 "$_kpid" 2>/dev/null && [[ ! -e "$D/k.pid" ]] && echo "PASS: T23 stop mata" || { echo "FAIL: T23 stop mata (rc=$rc23 $out23)"; FAIL=$((FAIL+1)); }
 
+echo "== T24: ensure no filtra locks al daemon (regresion /tmp/.lock) =="
+# `run` sin imagen -> ensure_image -> setup toma data_lock y run_in
+# auto-arranca: el daemon huerfano retenia el lock horas porque lo heredaba.
+# El hijo del spawn debe cerrarlos; el padre conservarlos.
+mkdir -p "$D/fakebin"
+printf '#!/bin/bash\nls /proc/self/fd > "%s/self-fds.txt"\n' "$D" > "$D/fakebin/arxy-fake"
+chmod +x "$D/fakebin/arxy-fake"
+export ARXY_SELF="$D/fakebin/arxy-fake" ARXY_ROOT="$D/lockroot"
+unset ARXY_NO_BRIDGE
+data_lock
+ensure_bridge_daemon
+if grep -qx "$ARXY_LOCK_FD" "$D/self-fds.txt" 2>/dev/null; then
+    echo "FAIL: T24 hijo heredo data_lock fd $ARXY_LOCK_FD"; FAIL=$((FAIL+1))
+elif grep -qx "9" "$D/self-fds.txt" 2>/dev/null; then
+    echo "FAIL: T24 hijo heredo fd 9 (ensure lock)"; FAIL=$((FAIL+1))
+else
+    echo "PASS: T24 hijo sin locks"
+fi
+data_lock && echo "PASS: T24 padre conserva el lock" || { echo "FAIL: T24 padre perdio el lock"; FAIL=$((FAIL+1)); }
+exec {ARXY_LOCK_FD}>&- 2>/dev/null || true; unset ARXY_LOCK_FD
+
 echo "== resultado: $([[ $FAIL -eq 0 ]] && echo TODO_OK || echo "$FAIL FALLOS")"
 exit $FAIL

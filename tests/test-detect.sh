@@ -89,11 +89,29 @@ echo "== musl-glibc-stack en host musl real (rama de test-musl-real.sh) =="
 if [[ "$(detect_libc 2>/dev/null)" != musl ]]; then
     echo "SKIP: host $(detect_libc 2>/dev/null) (musl-glibc-stack solo aplica en musl)"
 else
-    if "$ARXY_BIN" doctor --fix --json 2>/dev/null | grep -q '"id": "musl-glibc-stack", "applicable": true'; then
+    _mj_out="$("$ARXY_BIN" doctor --fix --json 2>/dev/null)"
+    if grep -q '"id": "musl-glibc-stack", "applicable": true' <<<"$_mj_out"; then
         echo "PASS: musl-glibc-stack aplicable en musl real"
     else
         echo "FAIL: musl-glibc-stack no aplicable en musl real"; FAIL=$((FAIL+1))
     fi
 fi
+
+echo "== ARXY_LEVEL basura: autodetecta, no muere (decision en level()) =="
+unset _ARXY_LEVEL
+ARXY_LEVEL=3 level 2>/dev/null
+if [[ "${_ARXY_LEVEL:-}" == 1 || "${_ARXY_LEVEL:-}" == 2 ]]; then
+    echo "PASS: ARXY_LEVEL=3 autodetecta ($_ARXY_LEVEL)"
+else
+    echo "FAIL: ARXY_LEVEL=3 (tengo '${_ARXY_LEVEL:-vacio}')"; FAIL=$((FAIL+1))
+fi
+unset _ARXY_LEVEL
+ARXY_LEVEL=bogus level 2>/dev/null
+if [[ "${_ARXY_LEVEL:-}" == 1 || "${_ARXY_LEVEL:-}" == 2 ]]; then
+    echo "PASS: ARXY_LEVEL=bogus autodetecta ($_ARXY_LEVEL)"
+else
+    echo "FAIL: ARXY_LEVEL=bogus (tengo '${_ARXY_LEVEL:-vacio}')"; FAIL=$((FAIL+1))
+fi
+unset _ARXY_LEVEL; unset ARXY_LEVEL
 
 finish

@@ -5,6 +5,14 @@ set -uo pipefail
 FAIL=0
 cd "$(dirname "$0")/.." || exit 1
 
+# Sin make no hay nada que verificar (guards con SKIP honesto, no FAIL
+# ambiental): el CI y los hosts con toolchain lo corren siempre.
+if ! command -v make >/dev/null 2>&1; then
+    echo "SKIP: test-makefile.sh (sin make en este host)"
+    echo "== resultado: TODO_OK (1 SKIP)"
+    exit 0
+fi
+
 t() { # t <nombre> -- <cmd...>
     local name="$1"; shift; shift
     local out rc
