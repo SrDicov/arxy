@@ -53,6 +53,12 @@ router `cmd_*`, bundle sourceable sin dispatchar — `main` solo con
   (envenena al subsistema: solo `ld-linux --library-path` + `unset` explícito).
 - Si arxy se instaló a mano, borrar `/usr/local/bin/arxy*` y
   `/usr/local/lib/arxy/` antes del paquete (hacen shadow por PATH).
+- `install-remote.sh` es el bootstrap remoto (POSIX sh estricto, sin
+  bash ni `local`): detecta PM/elevador/arch, instala deps por nombre
+  con degradado (verifica por comando), compila el daemon (el tarball
+  no lo trae), corre install.sh+setup+update. En el gate (`make lint`,
+  `lint.yml`) + `tests/test-remote-install.sh` (detección con stubs;
+  el e2e pesado es manual, ver PLAN-TESTING §12).
 
 ## Tests
 

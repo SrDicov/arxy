@@ -20,7 +20,8 @@ arxy install arxy-gaming-intel      # or -amd, or -nvidia
 The stack is Steam, Wine, `vkd3d`, gamescope, MangoHUD and the Vulkan loaders,
 plus the full Mesa (or `nvidia-utils`) stack for your GPU, `multilib` enabled
 for the 32-bit libraries, and Proton-GE + DXVK from the AUR (`-bin`, built as
-your unprivileged user, so **Level 1 only**). Level 2 fails before touching
+your unprivileged user, so **Level 1 only**). The AUR toolchain (including
+`makepkg` itself) installs on first use. Level 2 fails before touching
 anything, so a failed run never leaves half a stack.
 
 Note the Mesa trade-off: the mini image holds `mesa` via `IgnorePkg=mesa`

@@ -71,6 +71,25 @@ repos and nothing is touched.
 
 ## 4. Install variants
 
+### Remote one-liner (`install-remote.sh`)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SrDicov/arxy/main/install-remote.sh | sudo bash
+```
+
+POSIX-sh bootstrap (runs even without bash) for any distro with `apt`,
+`dnf`/`yum`, `pacman`, `apk`, `xbps`, `emerge` or `zypper`. It detects the
+distro, package manager, privilege elevator (`sudo`/`doas`) and CPU
+architecture, installs host dependencies by package-manager name (tolerating
+unknown names, then verifying by command), compiles the host-bridge daemon
+when a C compiler is available (otherwise `--without-bridge`), downloads the
+arxy release tarball, runs `install.sh`, then `setup` (CPU-tier repos inside),
+a full `update`, and verifies with `version` + a real `run` + `doctor`. Needs
+x86_64 and ~1.5 GB free. Idempotent: safe to re-run. `--check` only reports
+detection; env overrides: `ARXY_REF` (branch/tag, default `main`),
+`ARXY_REPO` (forks), `ARXY_TARBALL_URL`, `PREFIX`, `DESTDIR`, `ARXY_ROOT`,
+`ARXY_IMAGE_URL`, `ARXY_IMAGE_SHA256`, `ARXY_SIGNATURE_POLICY`.
+
 ### Generic installer (`install.sh`)
 
 | Option | Effect |
@@ -110,9 +129,8 @@ ARXY_IMAGE_URL=file:///path/to/rootfs.tar.zst sudo -E arxy setup
 ```
 
 `file://` does not handle spaces in the path. `https://` URLs work the same way,
-which is how you test a build before publishing it. There is no `curl | bash`
-installer on purpose: it needs the full repo layout (the generated `src/arxy*`,
-the config and the trust root), so clone the repo.
+which is how you test a build before publishing it. The remote one-liner
+accepts them too (`ARXY_IMAGE_URL=file:///path/to/rootfs.tar.zst`).
 
 ## 5. Configuration
 
