@@ -7,31 +7,40 @@ compat-glibc, no aislamiento). Solo escribe en `/var/lib/arxy` (rootfs,
 Lee `/etc/arxy/arxy.conf` y `~/.config/arxy/config` como datos (nunca los
 ejecuta). Precedencia: **env > user-conf > sys-conf** (env congelado en
 `_restore_frozen`, `lib/00-head.sh`). Contratos arquitectónicos (globales, lazy-init,
-router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
+router `cmd_*`, bundle sourceable sin dispatchar — `main` solo con
+`BASH_SOURCE[0] == $0`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 (vivo: cada `TODO:` o desviación se registra ahí; si no está, no existe).
 
 ## Fuentes canónicas y puerta antes de commit
 
-- `lib/*.sh` es canónico; `src/arxy` es generado (commiteado porque el
-  instalador lo lee del clon) concatenando `LIB` en el orden del `Makefile`.
-  `config/arxy.conf` y `config/arxy.pub` son canónicos;
-  `packaging/void/…/files/` son copias manuales para xbps.
-- Flujo: editar solo `lib/` → `make sync` (regenera + copia a packaging) →
-  commitear todo junto. `make bridge` compila el daemon C aparte (no va en
-  `src/arxy`). Bump versión en este orden: `ARXY_VERSION` en `lib/00-head.sh`
-  (+ `make sync`) → `version` en `packaging/void/arxy/template` →
-  `version`+`checksum` en `z-packages` (vía API, tras release). Nunca derivar
-  del tag (rompe `make sync` offline).
-- Gate antes de commit: `make verify` (= `lint` + `test` + diff byte-idéntico de
-  `src/arxy` + `cmp` contra `packaging/void/…/files/`). Ojo con el alcance de
-  CI: `lint.yml` solo corre la parte de shell (regen, `bash -n`, shellcheck,
-  cmp) y `test-signature.sh` con minisign real; **el resto de la suite no
+- `lib/*.sh` es canónico; `src/arxy*` son generados (commiteados porque el
+  instalador los lee del clon): `src/arxy` es el shim (solo
+  `lib/zz-dispatch.sh`: tabla de aliases + `exec` al bundle, sin parsear
+  config) y `src/arxy-<bundle>` concatena sus módulos (`B_<b>` en el
+  `Makefile`) + trailer `lib/exec-<b>.sh` (despacha `$1` a `cmd_*` y
+  recaptura `ARXY_ARGV` sin el subcomando). Bundles: `run pkg query
+  desktop setup maint doctor bridge help` (ver mapa y reglas superset en
+  el `Makefile`). `config/arxy.conf` y `config/arxy.pub` son canónicos;
+  `packaging/void/…/files/` son copias manuales para xbps (shim + bundles
+  + conf + pubkey).
+- Flujo: editar solo `lib/` → `make build` (regenera todo) + `make sync`
+  (copia a packaging) → commitear todo junto. `make bridge` compila el
+  daemon C aparte (no va en `src/arxy*`). Bump versión en este orden:
+  `ARXY_VERSION` en `lib/00-head.sh` (+ `make sync`) → `version` en
+  `packaging/void/arxy/template` → `version`+`checksum` en `z-packages`
+  (vía API, tras release). Nunca derivar del tag (rompe `make sync` offline).
+- Gate antes de commit: `make verify` (= `lint` + `test` + `git status`
+  limpio en `src/`/`packaging/void/…/files/`/`config/` + `cmp` de cada
+  generado contra packaging). Ojo con el alcance de CI: `lint.yml` solo
+  corre regen + `bash -n` (sí cubre `lib/*.sh`), shellcheck,
+  `cmp` y `test-signature.sh` con minisign real; **el resto de la suite no
   está en CI**, no des por hecho que un push la ejecutó. shellcheck siempre
-  sobre el generado, nunca sobre fragmentos sueltos (falsos SC2034/SC2148).
+  sobre los generados, nunca sobre fragmentos sueltos (falsos SC2034/SC2148).
 
 - Un commit por tarea, mensaje con el porqué.
 - Push, releases y GitHub (incl. z-repo): solo con pedido explícito.
-- `pacman` siempre `--noconfirm` vía `nc_args`; nunca `LD_LIBRARY_PATH`
+- `pacman` nunca a mano: usa `nc_args` (añade `--noconfirm` solo sin tty;
+  en terminal nada cambia). Nunca `LD_LIBRARY_PATH`
   (envenena al subsistema: solo `ld-linux --library-path` + `unset` explícito).
 - Si arxy se instaló a mano, borrar `/usr/local/bin/arxy*` y
   `/usr/local/lib/arxy/` antes del paquete (hacen shadow por PATH).
@@ -39,13 +48,18 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 ## Tests
 
 - Cada test es `bash tests/test-*.sh` autocontenido. `tests/run.sh` los
-  orquesta en secuencia: `make test` para la suite determinista y
-  `make test-all` para los que necesitan entorno externo. Helpers en
+  orquesta en secuencia: `make test` salta los que necesitan entorno externo
+  (`test-hardware.sh`, `test-arxy-gaming-real.sh`, `test-atomic-setup.sh`,
+  `test-devices-e2e.sh`, `test-doctor-fix-apply.sh`, `test-bridge-*.sh`,
+  `test-host-bridge.sh`, `test-desktop-shims.sh`); `make test-all`
+  (`ARXY_TEST_ALL=1`) los incluye. Helpers en
   `tests/lib.sh`: `t` (assert de contenido), `te` (rc exacto), `ok`/`no`,
   `finish`, `arxy_mkroot_ver`, `fake_drm`, `staging_clean` — reúsalos, no
   reescribas mini-asserts. `ARXY_BIN` default: `src/arxy` del repo (nunca el
   instalado: da falsos rojos). Tests que usan `$BIN`/`src/arxy`, siempre
-  DESPUÉS de sync. Ojo: `bridge/test-bridge.sh` vive fuera de `tests/`, así
+  DESPUÉS de sync. `tests/test-bundle.sh` pinea el split: `bash -n` +
+  sourceable + `cmd_*` de entrada por bundle + humo shim→bundle con casos
+  que mueren en `uso:` (sin estado). Ojo: `bridge/test-bridge.sh` vive fuera de `tests/`, así
   que `make test` NUNCA lo corre → `make bridge && bash bridge/test-bridge.sh`.
 - Assertions de **contenido** (`grep`), nunca solo rc (hubo bugs mudos con rc=0).
 - Suites **en secuencia, nunca en paralelo** (los de daemon/bridge flaquean por
@@ -71,6 +85,9 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
   (split-brain: setup extraía en un root y escribía estado en otro).
 - Re-exec con privilegios (`need_root`, `as_root`) pasa `ARXY_*` solo vía
   `arxy_env_pass()` (única fuente; sudo pelado opera sobre el rootfs default).
+  Split: el shim exporta `ARXY_SELF` (ruta al shim) y `ARXY_CMD` (canónico);
+  `need_root` re-ejecuta shim+canónico+args y los call sites usan
+  `$ARXY_SELF` (ambas viajan en `PRIV_ENV_KEYS`, nunca en `CONFIG_KEYS`).
   Sin tty y con sudo con password → `pkexec env …` (polkit, sin `.policy`
   propio); `sudo -n` passwordless se conserva (cron/NOPASSWD); en terminal
   nada cambia. Bajo pkexec `REAL_USER` sale de `PKEXEC_UID` (no hay

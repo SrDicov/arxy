@@ -111,7 +111,7 @@ ARXY_IMAGE_URL=file:///path/to/rootfs.tar.zst sudo -E arxy setup
 
 `file://` does not handle spaces in the path. `https://` URLs work the same way,
 which is how you test a build before publishing it. There is no `curl | bash`
-installer on purpose: it needs the full repo layout (the generated `src/arxy`,
+installer on purpose: it needs the full repo layout (the generated `src/arxy*`,
 the config and the trust root), so clone the repo.
 
 ## 5. Configuration

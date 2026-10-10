@@ -35,7 +35,7 @@ Vale lo que dice `AGENTS.md`. Resumen:
 
 Cada test es `bash tests/test-*.sh` y sigue siendo ejecutable por separado. Antes del PR, pasa el gate canónico de [AGENTS.md](AGENTS.md).
 
-Los tests que usan `src/arxy`, siempre después de `make sync` (si no,
+Los tests que usan `src/arxy*`, siempre después de `make sync` (si no,
 mienten con el binario viejo). Suites en secuencia, nunca en paralelo.
 `tests/test-hardware.sh` solo en host real con Intel, nunca en container.
 
@@ -47,6 +47,6 @@ repo hermano.
 ## Commits
 
 - Uno por tarea. Mensaje corto con el porqué.
-- No commitear `src/arxy` desfasado de `lib/`: el CI lo rechaza.
+- No commitear `src/arxy*` desfasado de `lib/`: el CI lo rechaza.
 - Push y releases: los hace el maintainer. No pidas acceso de escritura;
   el flujo es fork + PR.

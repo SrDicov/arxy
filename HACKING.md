@@ -23,7 +23,8 @@ cuando la salida alimenta otra función y temporales con cleanup confinado.
 - `bridge_active_socket` es la única resolución de socket válida para L1/L2;
   variables bridge heredadas se limpian antes de reconstruir el entorno.
 - `src/arxy` puede sourcearse sin disparar comandos; `main` solo corre cuando
-  el fichero se ejecuta directamente.
+  el fichero se ejecuta directamente. Los bundles `src/arxy-*` igual: su
+  trailer solo despacha con `BASH_SOURCE[0] == $0`.
 
 ## Mapa de módulos
 
@@ -37,9 +38,10 @@ cuando la salida alimenta otra función y temporales con cleanup confinado.
   y serialización/perfil.
 - `70-help`, `80-bridge`, `zz-dispatch`: interfaz y punto de entrada.
 
-El orden canónico vive únicamente en `LIB` dentro del `Makefile`; el artefacto
-`src/arxy` continúa siendo un ejecutable único para no complicar instalación ni
-empaquetado.
+El orden canónico vive únicamente en `SHIM` y `B_*` dentro del `Makefile`;
+`src/arxy` es el shim (despacha vía `exec`) y cada `src/arxy-<bundle>`
+concatena sus módulos + trailer `lib/exec-*.sh`. Son varios ejecutables en
+el mismo directorio para no complicar instalación ni empaquetado.
 
 ## 1. Memoización de `_ARXY_LEVEL`
 La función `level()` determina si el entorno permite namespaces de usuario (Nivel 1) o no (Nivel 2). Tras su primera ejecución exitosa, exporta `_ARXY_LEVEL`. El resto de módulos confía ciegamente en esta variable y no vuelve a invocar `level()`.
