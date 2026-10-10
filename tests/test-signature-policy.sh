@@ -47,15 +47,19 @@ err="$( ( export ARXY_SIGNATURE_POLICY=bogus; enforce_signature_policy 0 ) 2>&1 
 grep -q 'required|optional|off' <<<"$err" && ok "T2: mensaje lista valores" || no "T2: mensaje lista valores" "[$err]"
 
 echo "== T3: todo aviso: va a stderr (; tripwire)"
-if grep -rn 'msg "aviso:' "$HERE/../lib" | grep -v '>&2' | grep -q .; then
-    no "T3 avisos a stderr" "$(grep -rn 'msg "aviso:' "$HERE/../lib" | grep -v '>&2' | head -n 3 | tr '\n' ' ')"
+# Sin ... | grep -q .: con pipefail el grep -q cierra el pipe y el
+# productor muere con SIGPIPE (falso negativo). Capturar y grepear.
+grep -rn 'msg "aviso:' "$HERE/../lib" | grep -v '>&2' >"$D/t3.txt"
+if grep -q . "$D/t3.txt"; then
+    no "T3 avisos a stderr" "$(head -n 3 "$D/t3.txt" | tr '\n' ' ')"
 else
     ok "T3 avisos a stderr"
 fi
 
 echo "== T4: todo error: va a stderr (; tripwire)"
-if grep -rn 'msg "error:' "$HERE/../lib" | grep -v '>&2' | grep -q .; then
-    no "T4 errores a stderr" "$(grep -rn 'msg "error:' "$HERE/../lib" | grep -v '>&2' | head -n 3 | tr '\n' ' ')"
+grep -rn 'msg "error:' "$HERE/../lib" | grep -v '>&2' >"$D/t4.txt"
+if grep -q . "$D/t4.txt"; then
+    no "T4 errores a stderr" "$(head -n 3 "$D/t4.txt" | tr '\n' ' ')"
 else
     ok "T4 errores a stderr"
 fi

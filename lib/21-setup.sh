@@ -22,11 +22,11 @@ cachy_activate() { # <v3|v4|znver4> : activa ese tier + [cachyos]; 1 si la image
     grep -q 'cachyos' "$conf" 2>/dev/null || return 1
     [[ -f "$ARXY_ROOT/etc/pacman.d/$ml" ]] || return 1
     # Architecture = auto: el stock solo acepta x86_64 y los tiers v3/v4 no.
-    sed -i -E 's@^\[(cachyos-(core-|extra-)?(v3|v4|znver4))\]@#[\1]@' "$conf" \
-    && sed -i -E 's@^Include = /etc/pacman\.d/(cachyos-v3-mirrorlist|cachyos-v4-mirrorlist)@#Include = /etc/pacman.d/\1@' "$conf" \
-    && sed -i -E "s@^#(\[(cachyos(-${tier}|-core-${tier}|-extra-${tier})?)\])@\1@" "$conf" \
-    && sed -i -E "s@^#(Include = /etc/pacman\.d/(cachyos-mirrorlist|${ml}))@\1@" "$conf" \
-    && sed -i -E 's@^#?Architecture[[:space:]]*=.*@Architecture = auto@' "$conf" \
+    sed_inplace 's@^\[(cachyos-(core-|extra-)?(v3|v4|znver4))\]@#[\1]@' "$conf" \
+    && sed_inplace 's@^Include = /etc/pacman\.d/(cachyos-v3-mirrorlist|cachyos-v4-mirrorlist)@#Include = /etc/pacman.d/\1@' "$conf" \
+    && sed_inplace "s@^#(\[(cachyos(-${tier}|-core-${tier}|-extra-${tier})?)\])@\1@" "$conf" \
+    && sed_inplace "s@^#(Include = /etc/pacman\.d/(cachyos-mirrorlist|${ml}))@\1@" "$conf" \
+    && sed_inplace 's@^#?Architecture[[:space:]]*=.*@Architecture = auto@' "$conf" \
     && { grep -q '^Architecture = auto' "$conf" 2>/dev/null || printf '\nArchitecture = auto\n' >>"$conf"; }
 }
 
@@ -62,6 +62,7 @@ cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> rein
     clean_pkg_cache
     msg "CachyOS tier $tier activo y actualizado"
 }
+# shellcheck disable=SC2120 # cmd_* se despacha dinamicamente ("$_entry" "$@"): shellcheck no ve los args
 cmd_setup() {
     [[ $# -eq 0 ]] || die "uso: $PROG setup"
     need_root

@@ -2,6 +2,11 @@
 _gc_bytes() { # <path> : bytes en disco (0 si falta)
     local b
     b="$(du -sb "$1" 2>/dev/null | cut -f1)"
+    if [[ -z "$b" ]]; then
+        # Sin -b (BSD): bloques POSIX de 512B (ligera sobrestima, vale para gc).
+        b="$(du -s "$1" 2>/dev/null | cut -f1)"
+        [[ -n "$b" ]] && b=$((b * 512)) || b=0
+    fi
     echo "${b:-0}"
 }
 

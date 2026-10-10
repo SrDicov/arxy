@@ -7,45 +7,74 @@ compat-glibc, no aislamiento). Solo escribe en `/var/lib/arxy` (rootfs,
 Lee `/etc/arxy/arxy.conf` y `~/.config/arxy/config` como datos (nunca los
 ejecuta). Precedencia: **env > user-conf > sys-conf** (env congelado en
 `_restore_frozen`, `lib/00-head.sh`). Contratos arquitectónicos (globales, lazy-init,
-router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
+router `cmd_*`, bundle sourceable sin dispatchar — `main` solo con
+`BASH_SOURCE[0] == $0`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 (vivo: cada `TODO:` o desviación se registra ahí; si no está, no existe).
 
 ## Fuentes canónicas y puerta antes de commit
 
-- `lib/*.sh` es canónico; `src/arxy` es generado (commiteado porque el
-  instalador lo lee del clon) concatenando `LIB` en el orden del `Makefile`.
-  `config/arxy.conf` y `config/arxy.pub` son canónicos;
-  `packaging/void/…/files/` son copias manuales para xbps.
-- Flujo: editar solo `lib/` → `make sync` (regenera + copia a packaging) →
-  commitear todo junto. `make bridge` compila el daemon C aparte (no va en
-  `src/arxy`). Bump versión en este orden: `ARXY_VERSION` en `lib/00-head.sh`
-  (+ `make sync`) → `version` en `packaging/void/arxy/template` →
-  `version`+`checksum` en `z-packages` (vía API, tras release). Nunca derivar
-  del tag (rompe `make sync` offline).
-- Gate antes de commit: `make verify` (= `lint` + `test` + diff byte-idéntico de
-  `src/arxy` + `cmp` contra `packaging/void/…/files/`). Ojo con el alcance de
-  CI: `lint.yml` solo corre la parte de shell (regen, `bash -n`, shellcheck,
-  cmp) y `test-signature.sh` con minisign real; **el resto de la suite no
+- `lib/*.sh` es canónico; `src/arxy*` son generados (commiteados porque el
+  instalador los lee del clon): `src/arxy` es el shim (solo
+  `lib/zz-dispatch.sh`: tabla de aliases + `exec` al bundle, sin parsear
+  config) y `src/arxy-<bundle>` concatena sus módulos (`B_<b>` en el
+  `Makefile`) + trailer `lib/exec-<b>.sh` (despacha `$1` a `cmd_*` y
+  recaptura `ARXY_ARGV` sin el subcomando). Bundles: `run pkg query
+  desktop setup maint doctor bridge help` (ver mapa y reglas superset en
+  el `Makefile`). `config/arxy.conf` y `config/arxy.pub` son canónicos;
+  `packaging/void/…/files/` son copias manuales para xbps (shim + bundles
+  + conf + pubkey).
+- Flujo: editar solo `lib/` → `make build` (regenera todo; idempotente: dos
+  pasadas dan el mismo sha256) + `make sync` (copia a packaging) → commitear
+  todo junto. `make bridge` compila el daemon C aparte (no va en `src/arxy*`).
+  Bump versión en este orden: `ARXY_VERSION` en `lib/00-head.sh` (+ `make sync`)
+  → `version` en `packaging/void/arxy/template` → `version`+`checksum` en
+  `z-packages` (vía API, tras release). Nunca derivar del tag (rompe `make sync` offline).
+- Gate antes de commit: `make verify` (= `lint` + `test` + `git status`
+  limpio en `src/`/`packaging/void/…/files/`/`config/` + `cmp` de cada
+  generado contra packaging). Ojo con el alcance de CI: `lint.yml` solo
+  corre regen + `bash -n` (sí cubre `lib/*.sh`), shellcheck,
+  `cmp` y `test-signature.sh` con minisign real; **el resto de la suite no
   está en CI**, no des por hecho que un push la ejecutó. shellcheck siempre
-  sobre el generado, nunca sobre fragmentos sueltos (falsos SC2034/SC2148).
-
+  sobre los generados, nunca sobre fragmentos sueltos (falsos SC2034/SC2148).
+  Tras el split, SC2034/SC2120 estructurales llevan disable documentado en
+  el fragmento + tripwire B2 en `tests/test-surface.sh` (conjunto de
+  globales muertas por bundle, no debe crecer).
+- Estilo (de `HACKING.md`): Bash 4.4 (arrays, `mapfile`, namerefs) con
+  estilo POSIX-first — args como arrays (nunca comandos armados como texto),
+  datos por `stdout`, diagnósticos por `stderr`, `.conf` nunca con
+  `source`/`eval`, públicas `cmd_*`, resto con `_`, vars `ARXY_*`.
+  Directivas shellcheck: en línea propia ANTES del código (detrás dan
+  SC1126); el motivo NUNCA empieza por `# shellcheck` (se parsea como
+  directiva y da SC1073); no existe `enable=` para códigos normales.
 - Un commit por tarea, mensaje con el porqué.
 - Push, releases y GitHub (incl. z-repo): solo con pedido explícito.
-- `pacman` siempre `--noconfirm` vía `nc_args`; nunca `LD_LIBRARY_PATH`
+- `pacman` nunca a mano: usa `nc_args` (añade `--noconfirm` solo sin tty;
+  en terminal nada cambia). Nunca `LD_LIBRARY_PATH`
   (envenena al subsistema: solo `ld-linux --library-path` + `unset` explícito).
 - Si arxy se instaló a mano, borrar `/usr/local/bin/arxy*` y
   `/usr/local/lib/arxy/` antes del paquete (hacen shadow por PATH).
+- `install-remote.sh` es el bootstrap remoto (POSIX sh estricto, sin
+  bash ni `local`): detecta PM/elevador/arch, instala deps por nombre
+  con degradado (verifica por comando), compila el daemon (el tarball
+  no lo trae), corre install.sh+setup+update. En el gate (`make lint`,
+  `lint.yml`) + `tests/test-remote-install.sh` (detección con stubs;
+  el e2e pesado es manual, ver PLAN-TESTING §12).
 
 ## Tests
 
 - Cada test es `bash tests/test-*.sh` autocontenido. `tests/run.sh` los
-  orquesta en secuencia: `make test` para la suite determinista y
-  `make test-all` para los que necesitan entorno externo. Helpers en
+  orquesta en secuencia: `make test` salta los que necesitan entorno externo
+  (`test-hardware.sh`, `test-arxy-gaming-real.sh`, `test-atomic-setup.sh`,
+  `test-devices-e2e.sh`, `test-doctor-fix-apply.sh`, `test-bridge-*.sh`,
+  `test-host-bridge.sh`, `test-desktop-shims.sh`); `make test-all`
+  (`ARXY_TEST_ALL=1`) los incluye. Helpers en
   `tests/lib.sh`: `t` (assert de contenido), `te` (rc exacto), `ok`/`no`,
   `finish`, `arxy_mkroot_ver`, `fake_drm`, `staging_clean` — reúsalos, no
   reescribas mini-asserts. `ARXY_BIN` default: `src/arxy` del repo (nunca el
   instalado: da falsos rojos). Tests que usan `$BIN`/`src/arxy`, siempre
-  DESPUÉS de sync. Ojo: `bridge/test-bridge.sh` vive fuera de `tests/`, así
+  DESPUÉS de sync. `tests/test-bundle.sh` pinea el split: `bash -n` +
+  sourceable + `cmd_*` de entrada por bundle + humo shim→bundle con casos
+  que mueren en `uso:` (sin estado). Ojo: `bridge/test-bridge.sh` vive fuera de `tests/`, así
   que `make test` NUNCA lo corre → `make bridge && bash bridge/test-bridge.sh`.
 - Assertions de **contenido** (`grep`), nunca solo rc (hubo bugs mudos con rc=0).
 - Suites **en secuencia, nunca en paralelo** (los de daemon/bridge flaquean por
@@ -60,9 +89,10 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
   `cpu_tier` no usa env nuevo: args opcionales `[cpuinfo] [arch] [ldso]`
   (defaults: `${ARXY_SYS_ROOT:-}/proc/cpuinfo` + `uname -m` + primer
   ld-linux ejecutable del host; sin ldso —musl— fallback a flags).
-- Tests con `sh -c` + funciones de lib/: `export -f` funciones y vars, o
-  llamadas directas. Kills deterministas: overrides de función que matan TRAS
-  la fase + `kill -9 $BASHPID` (`$$` mataría al test, no al subshell).
+- Tests con `bash -c` + funciones de lib/: `export -f` funciones y vars
+  (`export -f` es de bash: con `sh`→dash no existe). Kills deterministas:
+  overrides de función que matan TRAS la fase + `kill -9 $BASHPID`
+  (`$$` mataría al test, no al subshell).
 
 ## Gotchas de env/paths (cada uno costó un bug)
 
@@ -71,14 +101,24 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
   (split-brain: setup extraía en un root y escribía estado en otro).
 - Re-exec con privilegios (`need_root`, `as_root`) pasa `ARXY_*` solo vía
   `arxy_env_pass()` (única fuente; sudo pelado opera sobre el rootfs default).
+  Split: el shim exporta `ARXY_SELF` (ruta al shim) y `ARXY_CMD` (canónico);
+  `need_root` re-ejecuta shim+canónico+args y los call sites usan
+  `$ARXY_SELF` (ambas viajan en `PRIV_ENV_KEYS`, nunca en `CONFIG_KEYS`).
   Sin tty y con sudo con password → `pkexec env …` (polkit, sin `.policy`
   propio); `sudo -n` passwordless se conserva (cron/NOPASSWD); en terminal
   nada cambia. Bajo pkexec `REAL_USER` sale de `PKEXEC_UID` (no hay
   `SUDO_USER`).
 - Con `pipefail`, `prod | grep -q` miente (SIGPIPE 141): capturar en variable
-  y grepear después. Presencia de binario = `test -x`, nunca `--version`.
-- `file://` no acepta espacios en la ruta. `command -v` no resuelve
-  builtins/funciones: barrer `PATH` a mano + `readlink -f`.
+  y grepear después. Vale también para tripwires (`grep ... | grep -q .`) y
+  para stubs de test: el lado que no lee debe drenar (`cat >/dev/null`) o el
+  productor muere a ratos. `wc -l` rellena con espacios en BSD: normalizar
+  con `tr -d '[:space:]'` antes de comparar. Presencia de binario = `test -x`, nunca `--version`.
+- `file://` no acepta espacios en la ruta (además: sin release que firmarlo,
+  la firma minisign se omite en `file://`). `command -v` no resuelve
+  builtins/funciones: barrer `PATH` a mano + `readlink -f` (`lib/80-bridge.sh`).
+  `sed -i` no es portable (BSD exige extensión) ni el `a` en una línea:
+  `sed_inplace()` (`lib/00-head.sh`) + `s` con `\n`. `du -sb`/`stat -c` llevan
+  fallback (`du -s`×512, `stat -f`) en `lib/`.
 - Tras `setup`, verificar `arxy version --verbose | grep url=` (una conf pudo
   pisar el env sin aviso; la matrix no lo caza). Tras tocar paths/env, mirar
   **mtimes de `/var/lib/arxy/*`** (tests pasan con estado envenenado).
@@ -90,7 +130,9 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
   `level()` detecta y memoiza en `_ARXY_LEVEL`. AUR solo L1, solo `-bin`
   (nunca toolchains); `--skippgpcheck` por defecto (`ARXY_GPG_CHECK=1` exige).
 - L2 cambia formatos de salida (`-Qlq --root` devuelve rutas prefijadas):
-  todo path-parsing debe funcionar en ambas formas.
+  todo path-parsing debe funcionar en ambas formas. En L2 `pacman -S/-U/-R`
+  crudo dentro de `shell` está bloqueado a propósito (usar
+  `install`/`remove`/`update`) y `CheckSpace` va off bajo chroot.
 - Invariantes: SIGKILL en cualquier punto deja el sistema recuperable en la
   siguiente invocación (`recover_staging`, `lib/20-state.sh`). `version`
   vive DENTRO del root: el rename publica imagen+versión juntas, el rollback
@@ -114,10 +156,9 @@ router `cmd_*`): `HACKING.md`. Límites permanentes: `OUT-OF-SCOPE.md`
 - `dedup` solo en `/usr` por hardlinks; auto solo si ahorra ≥10MB
   (`ARXY_NO_AUTO_DEDUP=1` lo desactiva). `s=search` publicado, `s` no es `shell`.
 - NVIDIA se detecta con `file -b` (dependencia declarada); nunca parsear ELF a
-  mano. `LD_LIBRARY_PATH` no se scrubbea en L1 a propósito.
+  mano. `LD_LIBRARY_PATH` no se scrubbea en L1 a propósito (la lista
+  `--unsetenv` de `lib/10-level.sh` lo excluye); en L2 se hace `unset` explícito.
 - `desktop --migrate` etiqueta `.desktop` legacy sin `X-Arxy-Pkg` (idempotente;
   auto tras install/update). Shims de build AUR canónicos en `aur_build`
   (`bsdtar`, `tar`, `cp`, `install`): nuevo shim solo con caso real + test.
 - Tech debt: `grep -rn 'TODO:' lib/ tests/ bridge/`.
-- Tras cada edit, releer la función entera y probar el path tocado, no solo el
-  editado (un edit en `cmd_remove` matcheó `install`).

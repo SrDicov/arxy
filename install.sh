@@ -10,7 +10,7 @@
 #   ./install.sh --help                  # esta ayuda
 #   ./install.sh --without-bridge        # omite el daemon
 #
-# Instala: bin/arxy (+ symlink axy) y etc/arxy.conf.
+# Instala: bin/arxy (+ sub-binarios arxy-* y symlink axy) y etc/arxy.conf.
 # Con el daemon host-bridge salvo --without-bridge.
 # La configuracion existente NO se sobrescribe (se deja .nuevo al lado).
 
@@ -35,12 +35,17 @@ LIB_DST="$DESTDIR$PREFIX/lib/arxy"
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "falta '$1' en el host" >&2; exit 1; }; }
 
-# Dependencias de runtime de arxy (mismas que el template xbps + sha256sum).
+# Dependencias de runtime de arxy. Direccion documentada (ver test-packaging.sh):
+# el template xbps las cubre TODAS y anade desktop-file-utils/minisign/sudo;
+# aqui solo las duras (+ sha256sum para verificar descargas a mano).
 for c in bash bwrap curl tar zstd xz gzip file sha256sum; do
     need_cmd "$c"
 done
 
 [[ -f "$SRC_DIR/src/arxy" ]] || { echo "no se encuentra src/arxy (ejecuta desde la raiz del repo)" >&2; exit 1; }
+for _b in run pkg query desktop setup maint doctor bridge help; do
+    [[ -f "$SRC_DIR/src/arxy-$_b" ]] || { echo "no se encuentra src/arxy-$_b (ejecuta 'make build' desde la raiz)" >&2; exit 1; }
+done
 [[ -f "$SRC_DIR/config/arxy.conf" ]] || { echo "no se encuentra config/arxy.conf" >&2; exit 1; }
 [[ -f "$SRC_DIR/config/arxy.pub" ]] || { echo "no se encuentra config/arxy.pub" >&2; exit 1; }
 
@@ -53,6 +58,9 @@ while [[ ! -e "$_conf_probe" ]]; do _conf_probe="$(dirname "$_conf_probe")"; don
 
 install -d -m755 "$BIN_DST" "$CONF_DST"
 install -m755 "$SRC_DIR/src/arxy" "$BIN_DST/arxy"
+for _b in run pkg query desktop setup maint doctor bridge help; do
+    install -m755 "$SRC_DIR/src/arxy-$_b" "$BIN_DST/arxy-$_b"
+done
 ln -sf arxy "$BIN_DST/axy"
 if [[ -n "$WITH_BRIDGE" ]]; then
     [[ -f "$SRC_DIR/bridge/arxy-bridged" ]] || { echo "sin bridge/arxy-bridged (ejecuta 'make bridge' o repite con --without-bridge)" >&2; exit 1; }

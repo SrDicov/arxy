@@ -23,14 +23,15 @@ probe() { # <home> <env-root> -> lineas ROOT=/DATA=/BUILD=/VFILE=
 mkdir -p "$D/h1/.config/arxy"
 printf 'ARXY_ROOT="/tmp/sb-conf/root"\n' > "$D/h1/.config/arxy/config"
 OUT="$(probe "$D/h1" "/tmp/sb-env/root")"
-echo "$OUT" | grep -qx "ROOT=/tmp/sb-env/root" && echo "PASS: T1 env ROOT sobrevive al user-conf" || { echo "FAIL: T1 env ROOT (vease arriba)"; echo "$OUT"; FAIL=$((FAIL+1)); }
-echo "$OUT" | grep -qx "DATA=/tmp/sb-env" && echo "PASS: T1 DATA deriva del env, no del conf" || { echo "FAIL: T1 DATA split-brain"; echo "$OUT"; FAIL=$((FAIL+1)); }
-echo "$OUT" | grep -qx "BUILD=/tmp/sb-env/build" && echo "PASS: T1 BUILD deriva del env" || { echo "FAIL: T1 BUILD"; echo "$OUT"; FAIL=$((FAIL+1)); }
-echo "$OUT" | grep -qx "VFILE=/tmp/sb-env/root/var/lib/arxy/version" && echo "PASS: T1 VFILE dentro del root aislado" || { echo "FAIL: T1 VFILE"; echo "$OUT"; FAIL=$((FAIL+1)); }
+grep -qx "ROOT=/tmp/sb-env/root" <<<"$OUT" && echo "PASS: T1 env ROOT sobrevive al user-conf" || { echo "FAIL: T1 env ROOT (vease arriba)"; echo "$OUT"; FAIL=$((FAIL+1)); }
+grep -qx "DATA=/tmp/sb-env" <<<"$OUT" && echo "PASS: T1 DATA deriva del env, no del conf" || { echo "FAIL: T1 DATA split-brain"; echo "$OUT"; FAIL=$((FAIL+1)); }
+grep -qx "BUILD=/tmp/sb-env/build" <<<"$OUT" && echo "PASS: T1 BUILD deriva del env" || { echo "FAIL: T1 BUILD"; echo "$OUT"; FAIL=$((FAIL+1)); }
+grep -qx "VFILE=/tmp/sb-env/root/var/lib/arxy/version" <<<"$OUT" && echo "PASS: T1 VFILE dentro del root aislado" || { echo "FAIL: T1 VFILE"; echo "$OUT"; FAIL=$((FAIL+1)); }
 
 # T2: tripwire estatico — derivacion en UN solo punto (contenido, no rc).
-[[ "$(grep -h '^ARXY_DATA=' "$HERE"/../lib/*.sh | wc -l)" == "1" ]] && echo "PASS: T2 ARXY_DATA se asigna en un solo punto" || { echo "FAIL: T2 doble derivacion de ARXY_DATA"; FAIL=$((FAIL+1)); }
-[[ "$(grep -h '^ARXY_BUILD=' "$HERE"/../lib/*.sh | wc -l)" == "1" ]] && echo "PASS: T2 ARXY_BUILD se asigna en un solo punto" || { echo "FAIL: T2 doble derivacion de ARXY_BUILD"; FAIL=$((FAIL+1)); }
+# wc -l rellena con espacios en BSD: normalizar antes de comparar.
+[[ "$(grep -h '^ARXY_DATA=' "$HERE"/../lib/*.sh | wc -l | tr -d '[:space:]')" == "1" ]] && echo "PASS: T2 ARXY_DATA se asigna en un solo punto" || { echo "FAIL: T2 doble derivacion de ARXY_DATA"; FAIL=$((FAIL+1)); }
+[[ "$(grep -h '^ARXY_BUILD=' "$HERE"/../lib/*.sh | wc -l | tr -d '[:space:]')" == "1" ]] && echo "PASS: T2 ARXY_BUILD se asigna en un solo punto" || { echo "FAIL: T2 doble derivacion de ARXY_BUILD"; FAIL=$((FAIL+1)); }
 
 # T3: segundo restore (ruta root con user-conf del usuario real).# Solo con sudo sin password; si no, SKIP honesto (no se finge).
 mkdir -p "$D/h3/.config/arxy"
@@ -38,8 +39,8 @@ printf 'ARXY_ROOT="/tmp/sb3-conf/root"\n' > "$D/h3/.config/arxy/config"
 if sudo -n true 2>/dev/null; then
     OUT3="$(sudo -n env "HOME=$D/h3" "XDG_CONFIG_HOME=" "SUDO_USER=nobody" "ARXY_ROOT=/tmp/sb3-env/root" \
         bash -c 'set --; . "$0" >/dev/null 2>&1; printf "ROOT=%s\nDATA=%s\n" "$ARXY_ROOT" "$ARXY_DATA"' "$LIB" 2>/dev/null)"
-    echo "$OUT3" | grep -qx "ROOT=/tmp/sb3-env/root" && echo "PASS: T3 env sobrevive al segundo restore" || { echo "FAIL: T3 segundo restore piso el env"; echo "$OUT3"; FAIL=$((FAIL+1)); }
-    echo "$OUT3" | grep -qx "DATA=/tmp/sb3-env" && echo "PASS: T3 DATA post-segundo-restore" || { echo "FAIL: T3 DATA tras segundo restore"; echo "$OUT3"; FAIL=$((FAIL+1)); }
+    grep -qx "ROOT=/tmp/sb3-env/root" <<<"$OUT3" && echo "PASS: T3 env sobrevive al segundo restore" || { echo "FAIL: T3 segundo restore piso el env"; echo "$OUT3"; FAIL=$((FAIL+1)); }
+    grep -qx "DATA=/tmp/sb3-env" <<<"$OUT3" && echo "PASS: T3 DATA post-segundo-restore" || { echo "FAIL: T3 DATA tras segundo restore"; echo "$OUT3"; FAIL=$((FAIL+1)); }
 else
     echo "SKIP: T3 exige sudo -n (segundo restore solo corre como root)"
     SKIP=$((SKIP+1))

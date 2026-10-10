@@ -38,7 +38,7 @@ nvidia_libs() { # "class<TAB>path" por lib NVIDIA del host ("" = ninguna)
             for f in "$d"/$pat; do
                 [[ -e "$f" ]] || continue
                 [[ -L "$f" ]] && continue # symlink: el real ya sale (evita duplicar link+real)
-                key="$(stat -c '%d:%i' "$f" 2>/dev/null || echo "$f")"
+                key="$(stat -c '%d:%i' "$f" 2>/dev/null || stat -f '%d:%i' "$f" 2>/dev/null || echo "$f")"
                 [[ -n "${_seen[$key]:-}" ]] && continue
                 _seen[$key]=1
                 cls="$(elf_class "$f")"
@@ -112,8 +112,9 @@ nvidia_mounts() { # "host<TAB>guest" (libs + ICDs + devices; "" = nada)
     done < <(nvidia_icds)
     while IFS= read -r n; do
         [[ -n "$n" ]] || continue
-        printf '%s\t%s\n' "$n" "$n"
-    done < <(detect_dev_nodes 2>/dev/null | grep nvidia || true)
+        # Filtro en bash (equivale a grep nvidia; ahorra un fork por run).
+        case "$n" in *nvidia*) printf '%s\t%s\n' "$n" "$n" ;; esac
+    done < <(detect_dev_nodes 2>/dev/null || true)
     return 0
 }
 

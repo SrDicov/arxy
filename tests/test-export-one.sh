@@ -74,5 +74,32 @@ cmd_export --all >/dev/null 2>&1
 ! grep -rq "^X-Arxy-Pkg=--all$" "$XDG_DATA_HOME/applications/" 2>/dev/null && ok "T8 sin literal --all" || no "T8 sin literal --all"
 grep -q "^X-Arxy-Pkg=codes$" "$XDG_DATA_HOME/applications/arxy-codes.desktop" 2>/dev/null && ok "T8 deducido codes" || no "T8 deducido codes"
 
+echo "== T9: pkg_desktops L2 filtra no-desktop y recorta mezclado =="
+run_pacman() {
+    [[ "${1:-}" == "-Qlq" ]] || return 0
+    printf '%s\n' "$ARXY_ROOT/usr/bin/$2" "$ARXY_ROOT/usr/share/applications/$2.desktop" "$ARXY_ROOT/usr/share/doc/$2/README" "/usr/share/applications/otro.desktop"
+}
+out="$(pkg_desktops beta)"
+[[ "$out" == "/usr/share/applications/beta.desktop"$'\n'"/usr/share/applications/otro.desktop" ]] \
+    && ok "T9 mixto L2+L1" || no "T9 mixto L2+L1 ($out)"
+
+echo "== T10: cmd_export <pkg> end-to-end con listado L2 =="
+run_pacman() { [[ "${1:-}" == "-Qlq" ]] && printf '%s/usr/share/applications/%s.desktop\n' "$ARXY_ROOT" "$2"; return 0; }
+mkdesk alga.desktop "[Desktop Entry]" "Name=Alga" "Exec=alga %U" "Type=Application"
+: > "$ARXY_ROOT/usr/bin/alga"; chmod +x "$ARXY_ROOT/usr/bin/alga"
+rm -f "$XDG_DATA_HOME/applications"/arxy-*.desktop
+cmd_export alga >/dev/null 2>&1
+out="$(cat "$XDG_DATA_HOME/applications/arxy-alga.desktop" 2>/dev/null)"
+grep -q "^Exec=arxy run /usr/bin/alga %U$" <<<"$out" && grep -q "^X-Arxy-Pkg=alga$" <<<"$out" \
+    && ok "T10 export L2 crea lanzador" || no "T10 export L2 ($out)"
+
+echo "== T11: recorte L2 con espacios en ARXY_ROOT =="
+old_root="$ARXY_ROOT"
+ARXY_ROOT="$D/r oot"
+run_pacman() { [[ "${1:-}" == "-Qlq" ]] && printf '%s/usr/share/applications/%s.desktop\n' "$ARXY_ROOT" "$2"; return 0; }
+out="$(pkg_desktops gamma)"
+ARXY_ROOT="$old_root"
+[[ "$out" == "/usr/share/applications/gamma.desktop" ]] && ok "T11 root con espacios" || no "T11 root con espacios ($out)"
+
 echo "== resultado: $([[ $FAIL -eq 0 ]] && echo TODO_OK || echo "$FAIL FALLOS")"
 exit $FAIL

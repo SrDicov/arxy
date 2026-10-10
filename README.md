@@ -12,6 +12,14 @@ layers.
 
 ## Install
 
+One line, any distro (installs dependencies, arxy, the image and updates
+everything; see `install-remote.sh --help` for options). Needs x86_64 and
+~1.5GB free; details in [ARCHITECTURE.md](ARCHITECTURE.md#4-install-variants):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SrDicov/arxy/main/install-remote.sh | sudo bash
+```
+
 From source, on any distro:
 
 ```bash

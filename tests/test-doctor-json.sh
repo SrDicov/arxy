@@ -61,6 +61,14 @@ if grep -Eq '"level": [12]' <<<"$_json"; then echo "PASS: json level válido";
 else echo "FAIL: json level válido"; FAIL=$((FAIL+1)); fi
 if grep -Eq '"signature": \{"policy": "(required|optional|off)", "minisign_available": (true|false), "last_setup_verified": (true|false)\}' <<<"$_json"; then echo "PASS: json signature válido";
 else echo "FAIL: json signature válido"; FAIL=$((FAIL+1)); fi
+# --- schema anidado (nunca renombrar/quitar; ver comentario en lib/62-json.sh)
+for _nk in '"version":' '"arch":' '"release":' '"vendor":' '"driver":' '"render_node":' \
+           '"present":' '"usable":' '"reason":' '"path":' '"rootfs":' '"fixes":' \
+           '"applicable":' '"destructive":' '"requires_root":' '"would_do":' '"phase":' \
+           '"available":' '"abi":' '"policy":' '"minisign_available":' '"last_setup_verified":'; do
+    if grep -Fq "$_nk" <<<"$_json"; then echo "PASS: json nested $_nk";
+    else echo "FAIL: json nested $_nk"; FAIL=$((FAIL+1)); fi
+done
 _j2="$("$BIN" doctor --json 2>/dev/null || true)"
 if [[ "$_json" == "$_j2" ]]; then echo "PASS: json determinista";
 else echo "FAIL: json determinista"; FAIL=$((FAIL+1)); fi
@@ -95,6 +103,19 @@ assert isinstance(d["signature"], dict), "signature"
 assert d["signature"]["policy"] in ("required", "optional", "off"), "signature.policy"
 assert isinstance(d["signature"]["minisign_available"], bool), "signature.minisign_available"
 assert isinstance(d["signature"]["last_setup_verified"], bool), "signature.last_setup_verified"
+assert isinstance(d["libc"]["version"], (str, type(None))), "libc.version"
+assert isinstance(d["kernel"]["arch"], (str, type(None))), "kernel.arch"
+assert isinstance(d["gpu"], dict) and isinstance(d["gpu"]["vendor"], str), "gpu"
+assert "render_node" in d["gpu"] and "driver" in d["gpu"], "gpu keys"
+assert isinstance(d["nvidia"]["present"], bool) and "reason" in d["nvidia"], "nvidia keys"
+assert isinstance(d["dev"], dict) and isinstance(d["dev"]["nvidia"], list), "dev"
+assert isinstance(d["rootfs"], dict) and isinstance(d["rootfs"]["present"], bool), "rootfs"
+assert isinstance(d["fixes"], list) and len(d["fixes"]) > 0, "fixes no vacio"
+f0 = d["fixes"][0]
+for k in ("id", "applicable", "destructive", "requires_root", "reason", "would_do", "phase"):
+    assert k in f0, "fix key " + k
+assert isinstance(f0["would_do"], list), "would_do lista"
+assert f0["phase"] is None or isinstance(f0["phase"], int), "phase"
 ' 2>/dev/null; then echo "PASS: json parseo estricto + tipos";
     else echo "FAIL: json parseo estricto + tipos"; FAIL=$((FAIL+1)); fi
 else

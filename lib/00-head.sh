@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
+# shellcheck disable=SC2034 # split multi-binario: 00-head abre cada bundle y
+# sus globales no se usan en todos (bridge/help/run); va ANTES del set porque
+# tras un set solo vale el primer disable (quirk verificado);
+# test-surface.sh (B2) pinea el conjunto conocido para que no se cuelen muertas.
 # arxy — subsistema Arch minimalista para correr software glibc en cualquier distro.
 #
 # Un namespace bwrap muestra la raíz Arch como / y comparte recursos del host.
@@ -11,9 +15,15 @@ set -uo pipefail
 HOME="${HOME:-/root}"
 export LC_ALL=C
 
-ARXY_VERSION="0.6.3"
+ARXY_VERSION="0.6.5"
 PROG="arxy"
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+# Split multi-binario: el shim exporta ARXY_SELF (ruta al shim) y ARXY_CMD
+# (subcomando canonico); el trailer del bundle recaptura ARXY_ARGV sin el
+# subcomando. Invocacion directa del bundle (solo tests): ambos vacios por
+# defecto y need_root conserva el camino legacy.
+ARXY_SELF="${ARXY_SELF:-$SELF}"
+ARXY_CMD="${ARXY_CMD:-}"
 
 # --- configuracion (precedencia: env > user-conf > sys-conf > defaults)
 # Los .conf son datos: CLAVE=valor, comillas opcionales, sin expansion. La
@@ -25,6 +35,7 @@ declare -ar CONFIG_KEYS=(
 )
 declare -ar PRIV_ENV_KEYS=(
     "${CONFIG_KEYS[@]}"
+    ARXY_SELF ARXY_CMD
     ARXY_BRIDGE_SOCKET ARXY_BRIDGE_TOKEN ARXY_VERSION_FILE
     ARXY_VERSION_LEGACY ARXY_SYS_ROOT ARXY_SYS_DRM_PATH ARXY_DEV_PATH
     ARXY_LIB_DIR ARXY_LIB64_DIR ARXY_NVIDIA_LIB_ROOT
@@ -168,6 +179,20 @@ need_cmd() {
     done
 }
 
+# sed -E in-place portable: el `sed -i` GNU no existe en BSD (su -i exige
+# extension) y el comando `a` en una linea tampoco. Via temporal + cat:
+# preserva inode y permisos; solo escribe si sed sale 0 (rc de sed).
+sed_inplace() { # <expr> <fichero> : aplica; rc de sed
+    local expr="$1" file="$2" tmp
+    [[ -f "$file" ]] || return 1
+    tmp="$(mktemp "${TMPDIR:-/tmp}/.arxy-sed.XXXXXX")" || return 1
+    if sed -E "$expr" "$file" >"$tmp"; then
+        cat "$tmp" >"$file" && rm -f "$tmp"
+    else
+        rm -f "$tmp"; return 1
+    fi
+}
+
 # Solo PRIV_ENV_KEYS cruza la frontera sudo/doas; el prefijo ARXY_ no basta.
 arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
     # sudo/doas fijan el env del hijo: sin export basta la asignacion.
@@ -212,7 +237,11 @@ as_root() { _root_run run "$@"; }
 # Re-ejecuta el argv original como root (los comandos que escriben lo exigen).
 need_root() {
     [[ "$(id -u)" -eq 0 ]] && return 0
-    _root_run exec "$SELF" "${ARXY_ARGV[@]}"
+    if [[ -n "$ARXY_CMD" ]]; then
+        _root_run exec "$ARXY_SELF" "$ARXY_CMD" "${ARXY_ARGV[@]}"
+    else
+        _root_run exec "$SELF" "${ARXY_ARGV[@]}"
+    fi
 }
 
 _image_ok() { # <dir>: valida un rootfs (instalado o en staging)

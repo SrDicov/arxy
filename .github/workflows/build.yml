@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  daemon:
+    # Daemon host-bridge en C + regenerados: lo que lint.yml no compila.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc make
+
+      - name: "make bridge limpio (-Wall -Wextra -Werror)"
+        run: |
+          make bridge
+          test -x bridge/arxy-bridged
+          echo BRIDGE_OK
+
+      - name: vectores de bridge/test-bridge.sh
+        run: |
+          bash bridge/test-bridge.sh | tee /tmp/bridge.log
+          grep -q 'ALL PASS' /tmp/bridge.log
+
+      - name: "regen idempotente (dos pasadas, mismo sha256)"
+        run: |
+          make build
+          sha256sum src/arxy* > /tmp/regen-a.sha
+          make build
+          sha256sum -c /tmp/regen-a.sha
+          echo REGEN_OK

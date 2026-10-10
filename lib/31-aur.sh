@@ -17,7 +17,7 @@ cmd_install_aur() {
             failed+=("$p")
             continue
         fi
-        if ! as_root "$SELF" __install-file "$f"; then
+        if ! as_root "$ARXY_SELF" __install-file "$f"; then
             msg "error: fallo al instalar $p (sigo con el resto)" >&2
             failed+=("$p")
             continue
@@ -42,12 +42,12 @@ ensure_aur_env() {
             [[ "$t" == "strip" ]] && missing_tools+=("binutils") || missing_tools+=("$t")
         }
     done
-    # makepkg viene con pacman.
-    in_sys /usr/bin/makepkg --version >/dev/null 2>&1 || \
-        die "imagen rota: sin makepkg"
+    # makepkg viene con el paquete pacman: si falta se instala solo como el
+    # resto (la mini no siempre lo trae; antes moria con "imagen rota").
+    in_sys /usr/bin/makepkg --version >/dev/null 2>&1 || missing_tools+=("pacman")
     if [[ "${#missing_tools[@]}" -gt 0 ]]; then
         msg "herramientas AUR que faltan: ${missing_tools[*]}" >&2
-        as_root "$SELF" install "${missing_tools[@]}" >&2 || \
+        as_root "$ARXY_SELF" install "${missing_tools[@]}" >&2 || \
             die "no pude instalar herramientas AUR '${missing_tools[*]}' (mira el error de pacman de arriba)"
     fi
     if in_sys /usr/bin/paru --version >/dev/null 2>&1; then
@@ -73,10 +73,10 @@ aur_build() { # <pkg> -> ruta paquete construido
     if [[ -n "${HAVE_PARU:-}" ]]; then
         in_bwrap /usr/bin/paru --noconfirm -G "$pkg" "$work_ns" >&2 2>/dev/null || \
         in_bwrap /usr/bin/git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$work_ns" >&2 || \
-            die "no existe en AUR: $pkg (revisa el nombre con '$PROG search-aur $pkg')"
+            die "no existe en AUR: $pkg (¿red caida? si no, revisa el nombre con '$PROG search-aur $pkg')"
     else
         in_bwrap /usr/bin/git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$work_ns" >&2 || \
-            die "no existe en AUR: $pkg (revisa el nombre con '$PROG search-aur $pkg')"
+            die "no existe en AUR: $pkg (¿red caida? si no, revisa el nombre con '$PROG search-aur $pkg')"
     fi
     # Instalar dependencias oficiales antes de invocar makepkg.
     if [[ -f "$work_host/.SRCINFO" ]]; then
@@ -93,7 +93,7 @@ aur_build() { # <pkg> -> ruta paquete construido
         if [[ "${#missing[@]}" -gt 0 ]]; then
             # stdout reservado a la ruta del paquete final.
             msg "deps de $pkg: ${missing[*]}" >&2
-            as_root "$SELF" install "${missing[@]}" >&2 || \
+            as_root "$ARXY_SELF" install "${missing[@]}" >&2 || \
                 msg "aviso: alguna dep no esta en repos oficiales; sigo y que decida makepkg" >&2
         fi
     fi

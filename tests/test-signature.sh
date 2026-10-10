@@ -88,7 +88,7 @@ s() { # s <nombre> <want: 0|1> : con env ya fijado en subshell
 ( export ARXY_SIGNATURE_POLICY=required ARXY_IMAGE_SHA256="" ARXY_IMAGE_URL="https://x/y.tar.zst"; s "T: https+required verifica" 0 )
 
 echo "== pubkey del repo (formato pinneado) =="
-[[ "$(wc -l <"$HERE/../config/arxy.pub")" == 2 ]] && ok "pub: 2 lineas" || no "pub: 2 lineas"
+[[ "$(wc -l <"$HERE/../config/arxy.pub" | tr -d '[:space:]')" == 2 ]] && ok "pub: 2 lineas" || no "pub: 2 lineas"
 head -n 1 "$HERE/../config/arxy.pub" | grep -q '^untrusted comment: minisign public key [0-9A-F]*$' \
     && ok "pub: comment con key id" || no "pub: comment con key id"
 [[ -n "$(tail -c 1 "$HERE/../config/arxy.pub")" ]] && no "pub: newline final" || ok "pub: newline final"
@@ -124,7 +124,8 @@ if command -v minisign >/dev/null 2>&1; then
     cp "$V/msg.bin" "$D/v-tocada.bin" && printf 'X' >>"$D/v-tocada.bin"
     ( verify_signature "$D/v-tocada.bin" "$V/msg.minisig" "$V/t.pub" ); rc=$?
     [[ "$rc" == 1 ]] && ok "vector: mensaje tocado falla" || no "vector: mensaje tocado falla" "$rc"
-    cp "$V/msg.minisig" "$D/v-sig-tocada.minisig" && sed -i '2s/./X/' "$D/v-sig-tocada.minisig"
+    # Sin sed -i (BSD exige extension): reescritura portable via temporal.
+    cp "$V/msg.minisig" "$D/v-sig-tocada.minisig" && sed '2s/./X/' "$D/v-sig-tocada.minisig" >"$D/v-sig-tocada.tmp" && cat "$D/v-sig-tocada.tmp" >"$D/v-sig-tocada.minisig"; rm -f "$D/v-sig-tocada.tmp"
     ( verify_signature "$V/msg.bin" "$D/v-sig-tocada.minisig" "$V/t.pub" ); rc=$?
     [[ "$rc" == 1 ]] && ok "vector: firma tocada falla" || no "vector: firma tocada falla" "$rc"
     # minisign ignora basura trailing por diseno; pinnearlo

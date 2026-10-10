@@ -1,0 +1,343 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# shellcheck disable=SC2034 # split multi-binario: 00-head abre cada bundle y
+# sus globales no se usan en todos (bridge/help/run); va ANTES del set porque
+# tras un set solo vale el primer disable (quirk verificado);
+# test-surface.sh (B2) pinea el conjunto conocido para que no se cuelen muertas.
+# arxy — subsistema Arch minimalista para correr software glibc en cualquier distro.
+#
+# Un namespace bwrap muestra la raíz Arch como / y comparte recursos del host.
+# Estado persistente: /var/lib/arxy y lanzadores arxy-*.desktop del usuario.
+
+set -uo pipefail
+
+HOME="${HOME:-/root}"
+export LC_ALL=C
+
+ARXY_VERSION="0.6.5"
+PROG="arxy"
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+# Split multi-binario: el shim exporta ARXY_SELF (ruta al shim) y ARXY_CMD
+# (subcomando canonico); el trailer del bundle recaptura ARXY_ARGV sin el
+# subcomando. Invocacion directa del bundle (solo tests): ambos vacios por
+# defecto y need_root conserva el camino legacy.
+ARXY_SELF="${ARXY_SELF:-$SELF}"
+ARXY_CMD="${ARXY_CMD:-}"
+
+# --- configuracion (precedencia: env > user-conf > sys-conf > defaults)
+# Los .conf son datos: CLAVE=valor, comillas opcionales, sin expansion. La
+# lista cerrada protege tambien la lectura del config de usuario como root.
+declare -ar CONFIG_KEYS=(
+    ARXY_ROOT ARXY_IMAGE_URL ARXY_IMAGE_SHA256 ARXY_SIGNATURE_POLICY
+    ARXY_LEVEL ARXY_GPG_CHECK ARXY_KEEP_PKG_CACHE ARXY_NO_AUTO_DEDUP
+    ARXY_NO_BRIDGE ARXY_BRIDGE_ALLOWLIST ARXY_BRIDGE_BIN
+)
+declare -ar PRIV_ENV_KEYS=(
+    "${CONFIG_KEYS[@]}"
+    ARXY_SELF ARXY_CMD
+    ARXY_BRIDGE_SOCKET ARXY_BRIDGE_TOKEN ARXY_VERSION_FILE
+    ARXY_VERSION_LEGACY ARXY_SYS_ROOT ARXY_SYS_DRM_PATH ARXY_DEV_PATH
+    ARXY_LIB_DIR ARXY_LIB64_DIR ARXY_NVIDIA_LIB_ROOT
+    ARXY_NVIDIA_LIB_ROOT64 ARXY_NVIDIA_LIB_ROOT32 ARXY_VULKAN_ICD_PATH
+    ARXY_EGL_PLATFORM_PATH ARXY_GAMING_AUR_DONE
+)
+declare -A _frozen_val=()
+while IFS= read -r _n; do _frozen_val["$_n"]="${!_n}"; done < <(compgen -e | grep '^ARXY_' || true)
+
+_config_key_allowed() {
+    local key
+    for key in "${CONFIG_KEYS[@]}"; do
+        [[ "$1" == "$key" ]] && return 0
+    done
+    return 1
+}
+
+_config_trim() { # <texto>: resultado en _CONFIG_TEXT
+    _CONFIG_TEXT="$1"
+    _CONFIG_TEXT="${_CONFIG_TEXT#"${_CONFIG_TEXT%%[![:space:]]*}"}"
+    _CONFIG_TEXT="${_CONFIG_TEXT%"${_CONFIG_TEXT##*[![:space:]]}"}"
+}
+
+_config_decode() { # <valor>: resultado literal en _CONFIG_VALUE (sin escapes; # tras espacio es comentario solo sin comillas)
+    _config_trim "$1"
+    local raw="$_CONFIG_TEXT" n=${#_CONFIG_TEXT}
+    _CONFIG_VALUE=""
+    if [[ "$raw" == \"* ]]; then
+        [[ "$n" -ge 2 && "$raw" == *\" ]] || return 1
+        _CONFIG_VALUE="${raw:1:n-2}"
+    elif [[ "$raw" == \'* ]]; then
+        [[ "$n" -ge 2 && "$raw" == *\' ]] || return 1
+        _CONFIG_VALUE="${raw:1:n-2}"
+    else
+        _CONFIG_VALUE="${raw%%[[:space:]]#*}"
+        _config_trim "$_CONFIG_VALUE"
+        _CONFIG_VALUE="$_CONFIG_TEXT"
+    fi
+}
+
+_config_read() { # <fichero>: asignaciones permitidas, sin eval/source
+    local file="$1" line key raw line_no=0
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_no=$((line_no + 1))
+        _config_trim "$line"
+        line="$_CONFIG_TEXT"
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        if [[ ! "$line" =~ ^(export[[:space:]]+)?([A-Z_][A-Z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+            printf 'arxy: aviso: %s:%d: linea de configuracion ignorada\n' "$file" "$line_no" >&2
+            continue
+        fi
+        key="${BASH_REMATCH[2]}"
+        raw="${BASH_REMATCH[3]}"
+        if ! _config_key_allowed "$key"; then
+            printf 'arxy: aviso: %s:%d: clave no soportada: %s\n' "$file" "$line_no" "$key" >&2
+            continue
+        fi
+        if ! _config_decode "$raw"; then
+            printf 'arxy: aviso: %s:%d: comillas no balanceadas en %s\n' "$file" "$line_no" "$key" >&2
+            continue
+        fi
+        printf -v "$key" '%s' "$_CONFIG_VALUE"
+    done < "$file"
+}
+
+_restore_frozen() { # el env congelado manda sobre cualquier fichero.
+    # Antes de derivar rutas (evita estados split-brain).
+    local _n
+    if ((${#_frozen_val[@]})); then
+        for _n in "${!_frozen_val[@]}"; do
+            printf -v "$_n" '%s' "${_frozen_val[$_n]}"
+            # shellcheck disable=SC2163 # export indirecto intencionado (NAME=valor)
+            export "$_n"
+        done
+    fi
+}
+ARXY_ROOT="${ARXY_ROOT:-/var/lib/arxy/root}"
+ARXY_IMAGE_URL="${ARXY_IMAGE_URL:-}"
+ARXY_IMAGE_SHA256="${ARXY_IMAGE_SHA256:-}"
+ARXY_SIGNATURE_POLICY="${ARXY_SIGNATURE_POLICY:-optional}" # required|optional|off
+
+ARXY_SYS_CONF="/etc/arxy/arxy.conf"
+ARXY_USER_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/arxy/config"
+_config_read "$ARXY_SYS_CONF"
+_config_read "$ARXY_USER_CONF"
+_restore_frozen
+
+ARXY_ARGV=("$@")
+
+# --- usuario real (los .desktop van a SU home aunque se use sudo/doas)
+if [[ "$(id -u)" -eq 0 ]]; then
+    REAL_USER="${SUDO_USER:-${DOAS_USER:-${USER:-$(id -un)}}}"
+    # pkexec no pone SUDO_USER: el invocador viene en PKEXEC_UID (sin esto
+    # los .desktop de una sesion GUI caerian en /root).
+    if [[ -z "${SUDO_USER:-}${DOAS_USER:-}" && -n "${PKEXEC_UID:-}" ]]; then
+        REAL_USER="$(id -nu "$PKEXEC_UID" 2>/dev/null || echo "$REAL_USER")"
+    fi
+else
+    REAL_USER="${USER:-$(id -un)}"
+fi
+REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
+[[ -z "${REAL_HOME:-}" || ! -d "$REAL_HOME" ]] && REAL_HOME="$HOME"
+REAL_APPS="${XDG_DATA_HOME:-$REAL_HOME/.local/share}/applications"
+
+# Bajo sudo/doas tambien se lee la config del usuario real (como datos).
+if [[ "$(id -u)" -eq 0 && "$REAL_HOME" != "$HOME" ]]; then
+    _config_read "$REAL_HOME/.config/arxy/config"
+    _restore_frozen
+fi
+unset _frozen_val _CONFIG_TEXT _CONFIG_VALUE
+
+# Vacio no es unset: rechazarlo evita derivar rutas inesperadas.
+if [[ -z "${ARXY_ROOT:-}" ]]; then
+    echo "arxy: error: ARXY_ROOT vacio (unset para usar el default)" >&2
+    exit 1
+fi
+if [[ "$ARXY_ROOT" != /* || "$ARXY_ROOT" == / ]]; then
+    echo "arxy: error: ARXY_ROOT debe ser una ruta absoluta distinta de /" >&2
+    exit 1
+fi
+# Todas las rutas derivadas nacen aqui, tras resolver la configuracion.
+ARXY_DATA="${ARXY_ROOT%/*}"              # /var/lib/arxy
+# La version vive dentro del root y rota con la imagen (atomico).
+: "${ARXY_VERSION_FILE:=$ARXY_ROOT/var/lib/arxy/version}"
+# Ruta antigua: solo se adopta y elimina, el codigo nuevo no la escribe.
+: "${ARXY_VERSION_LEGACY:=$ARXY_DATA/version}"
+ARXY_BUILD="$ARXY_DATA/build"              # dir de compilacion AUR (1777)
+NS_BUILD="/arxy-build"                     # misma dir vista desde dentro
+
+LD_LINUX="$ARXY_ROOT/usr/lib/ld-linux-x86-64.so.2" # interprete ELF del subsistema
+ARXY_LIBPATH="$ARXY_ROOT/usr/lib"
+
+msg()  { printf 'arxy: %s\n' "$*"; }
+die()  { printf 'arxy: error: %s\n' "$*" >&2; exit 1; }
+
+need_cmd() {
+    local c
+    for c in "$@"; do
+        command -v "$c" >/dev/null 2>&1 || die "falta '$c' en el host (instalalo con tu gestor de paquetes)"
+    done
+}
+
+# sed -E in-place portable: el `sed -i` GNU no existe en BSD (su -i exige
+# extension) y el comando `a` en una linea tampoco. Via temporal + cat:
+# preserva inode y permisos; solo escribe si sed sale 0 (rc de sed).
+sed_inplace() { # <expr> <fichero> : aplica; rc de sed
+    local expr="$1" file="$2" tmp
+    [[ -f "$file" ]] || return 1
+    tmp="$(mktemp "${TMPDIR:-/tmp}/.arxy-sed.XXXXXX")" || return 1
+    if sed -E "$expr" "$file" >"$tmp"; then
+        cat "$tmp" >"$file" && rm -f "$tmp"
+    else
+        rm -f "$tmp"; return 1
+    fi
+}
+
+# Solo PRIV_ENV_KEYS cruza la frontera sudo/doas; el prefijo ARXY_ no basta.
+arxy_env_pass() { # imprime VAR=val por linea (valores: rutas/flags, sin \n)
+    # sudo/doas fijan el env del hijo: sin export basta la asignacion.
+    local v value
+    for v in "${PRIV_ENV_KEYS[@]}"; do
+        [[ -v "$v" ]] || continue
+        value="${!v}"
+        [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] \
+            || die "$v contiene saltos de linea y no se puede elevar con seguridad"
+        printf '%s=%s\n' "$v" "$value"
+    done
+}
+
+# Frontera de privilegios (sudo/doas/pkexec). Sin tty un elevador con password
+# no puede pedirla: pkexec usa el dialogo polkit (sin .policy propio). Un
+# elevador passwordless (cron/NOPASSWD) se conserva sin tty (los probes -n
+# nunca preguntan). En terminal no cambia nada. exec reemplaza el proceso.
+_root_run() { # <run|exec> <cmd...>
+    local mode="$1"; shift
+    local -a pass=()
+    mapfile -t pass < <(arxy_env_pass)
+    local -a elevate
+    if [[ ! -t 0 ]] \
+        && ! { command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; } \
+        && ! { command -v doas >/dev/null 2>&1 && doas -n true 2>/dev/null; } \
+        && command -v pkexec >/dev/null 2>&1; then
+        # pkexec sanea el entorno: env por argv conserva los ARXY_*.
+        elevate=(pkexec "$(command -v env)" "${pass[@]}")
+    elif command -v sudo >/dev/null 2>&1; then
+        elevate=(sudo "${pass[@]}" --)
+    elif command -v doas >/dev/null 2>&1; then
+        elevate=(doas env "${pass[@]}")
+    else
+        die "este comando necesita root y no hay sudo/doas/pkexec"
+    fi
+    [[ "$mode" == exec ]] && exec "${elevate[@]}" "$@"
+    "${elevate[@]}" "$@"
+}
+
+as_root() { _root_run run "$@"; }
+
+# Re-ejecuta el argv original como root (los comandos que escriben lo exigen).
+need_root() {
+    [[ "$(id -u)" -eq 0 ]] && return 0
+    if [[ -n "$ARXY_CMD" ]]; then
+        _root_run exec "$ARXY_SELF" "$ARXY_CMD" "${ARXY_ARGV[@]}"
+    else
+        _root_run exec "$SELF" "${ARXY_ARGV[@]}"
+    fi
+}
+
+_image_ok() { # <dir>: valida un rootfs (instalado o en staging)
+    [[ -x "$1/usr/bin/bash" && -x "$1/usr/bin/pacman" && -f "$1/etc/arch-release" ]]
+}
+image_ok() { _image_ok "$ARXY_ROOT"; }
+
+# Lock no bloqueante y reentrante; se toma tras need_root.
+data_lock() {
+    [[ -n "${ARXY_LOCK_FD:-}" ]] && return 0 # ya tomado (anidado)
+    # Derivar del ROOT actual evita usar un ARXY_DATA antiguo en tests.
+    local lf="${ARXY_ROOT%/*}/.lock"
+    mkdir -p "${ARXY_ROOT%/*}" 2>/dev/null || die "no pude crear ${ARXY_ROOT%/*} (¿permisos?)"
+    # No redirigir este exec: la redireccion persistiria en toda la shell.
+    exec {ARXY_LOCK_FD}>"$lf"
+    [[ -n "${ARXY_LOCK_FD:-}" ]] || die "no pude abrir lock $lf (¿permisos?)"
+    flock -n "$ARXY_LOCK_FD" 2>/dev/null || die "otra operacion arxy en curso (lock $lf); reintenta cuando termine"
+}
+
+# Sin tty (scripts, pipes) pacman no puede preguntar: solo --noconfirm.
+# Uso: nc_args <nombre-array>; luego "${arr[@]}".
+nc_args() {
+    local -n _nc=$1
+    _nc=()
+    [[ -t 0 ]] || _nc=(--noconfirm)
+}
+
+ensure_image() {
+    recover_staging || true # huerfanos de kills: reparar nunca bloquea el arranque
+    if image_ok; then ensure_version; migrate_version_file; return 0; fi
+    msg "imagen no encontrada en $ARXY_ROOT, descargando..."
+    cmd_setup
+    image_ok || die "la instalacion de la imagen fallo (mira el error de arriba o reintenta 'sudo $PROG setup')"
+}
+cmd_help() {
+    cat <<EOF
+$PROG $ARXY_VERSION — subsistema Arch minimalista (rápido, sin sandbox).
+
+Uso: $PROG <comando> [args...]   (axy es alias de $PROG)
+Sin ayuda por comando: cada mal uso imprime su uso de una linea.
+
+Empezar:
+  setup                (re)descarga e instala la imagen (atomico, con rollback)
+  quickstart|qs        dice tu siguiente paso segun estado (para empezar)
+  doctor [--fix [--apply]|--json]  verifica (fix informa; --apply root)
+  version [--verbose]  version CLI+imagen (verbose: nivel/GPU/tamaño/hold)
+  help                 esta ayuda
+
+Dia a dia:
+  install|i <pkg...>   instalar paquetes de Arch (+ crea lanzadores .desktop)
+  install gpu-amd|gpu-nvidia  stack GL completo para esas GPUs (+~170MB)
+  install arxy-gaming[-amd|-intel|-nvidia] [--dry-run]  stack gaming (auto u override)
+  install --aur <pkg>  instalar de AUR (precompilados -bin, paru o git+RPC)
+  remove|rm <pkg...>   desinstalar (+ borra sus lanzadores)
+  update|up            actualizar todo el subsistema (pacman -Syu)
+  run|r <bin|ruta> [...] ejecutar programa del subsistema o binario suelto
+  shell [cmd...]       terminal Arch completa (admin: sudo $PROG shell)
+  search|s <texto>     buscar en repos
+  search-aur|sa <txt>  buscar en AUR (paru o RPC; requiere jq)
+  info <pkg>           info de un paquete (instalado o de repos)
+  list|l               paquetes instalados ([desktop] = tiene lanzador)
+  which|w <bin|ruta>    muestra donde se resolveria ([subsistema] o [host])
+  export <pkg|f.desktop|--all>  (re)crear lanzadores .desktop
+  unexport <nombre>    borrar un lanzador
+  desktop --migrate    migrar lanzadores legacy sin X-Arxy-Pkg (idempotente)
+  host-bridge [--daemon|--stop|--status] [--socket P] [--allowed-cmd BIN...]
+                       daemon host-bridge (sin allowlist no arranca)
+
+Reparar y mantener:
+  rollback             restaura el setup inmediato anterior (1 sola generacion)
+  clean [--apply]   informa uso (rootfs/cache/AUR) y limpia con --apply
+  gc [--json] [--apply]  informa bytes (rollback/cache/build/staging) en texto o JSON; --apply purga
+  dedup                hardlinkea ficheros identicos de /usr (ahorra disco)
+
+Atajos: i add, rm uninstall, up upgrade, clean-cache, show, l ls installed, s find, sa, r exec x, w, sh enter, check, qs start, init, -v --version, -h --help. Si el comando no existe, se interpreta como 'run':
+  $PROG firefox   ==   $PROG run firefox
+
+Ejemplos:
+  $PROG install firefox gimp htop
+  $PROG run ./mi-binario-suelto --opcion
+  $PROG shell
+  sudo $PROG shell        # para pacman manual dentro
+
+Config: $ARXY_SYS_CONF, ~/.config/arxy/config (env manda).
+Nivel: auto (1=bwrap, 2=sin namespaces); forzar con ARXY_LEVEL=1|2.
+Imagen: $ARXY_ROOT  (se descarga sola en el primer uso).
+EOF
+}
+# --- trailer arxy-help (canonico): despacha $1 a cmd_*; recaptura ARXY_ARGV
+# sin el subcomando para que need_root re-ejecute shim + canonico + args.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    case "${1:-}" in
+        help|-h|--help) _entry=cmd_help ;;
+        *) printf '%s: error: arxy-help solo entiende: help\n' "$PROG" >&2; exit 1 ;;
+    esac
+    shift
+    ARXY_ARGV=("$@")
+    "$_entry" "$@"
+fi

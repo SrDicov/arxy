@@ -10,7 +10,7 @@ data_sync() { # <paths...> : fsync best-effort; nunca falla setup
 _newest_first() { # <prefijo> : "$prefijo"* mas reciente primero (una linea)
     local p
     for p in "$1"*; do [[ -e "$p" ]] || continue
-        printf '%s\t%s\n' "$(stat -c %Y "$p" 2>/dev/null || echo 0)" "$p"
+        printf '%s\t%s\n' "$(stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || echo 0)" "$p"
     done | sort -rn | cut -f2-
 }
 staging_inventory() { # huerfanos de setup/rollback: "<accion>\t<path>"; pura
@@ -135,7 +135,9 @@ version_line() { # "url=... date=..." (ambos formatos; vacio si falta)
     fi
     echo "url=$u date=$d"
 }
-# TODO: deuda viva. Remover en v0.6.0 o cuando no haya instalaciones v0.1 activas.
+# Deuda viva (decision 2026-10-10): la migracion plano->JSON se CONSERVA aunque
+# pase v0.6.0. Cuesta ~15 lineas y protege instalaciones v0.1 sin aviso; quitarla
+# las dejaria con version ilegible sin pista. Reabrir solo con caso real.
 migrate_version_file() { # plano -> JSON atomico; idempotente; rc 0 (avisa)
     local f="$ARXY_VERSION_FILE"
     [[ -f "$f" ]] || return 0

@@ -210,7 +210,7 @@ else
 fi
 
 # --- 6. permisos socket 0600 ---
-st="$(stat -c %a "$SOCK")"
+st="$(stat -c %a "$SOCK" 2>/dev/null || stat -f %Lp "$SOCK")"
 if test "$st" = "600"; then
     pass "socket 0600"
 else
@@ -404,6 +404,39 @@ if test "$n" = "2"; then
 else
     fail "tripwire: esperadas 2 ramas con fr.pl=NULL, hay [$n]"
 fi
+
+# --- 22. higiene de fds: el daemon no hereda fds del padre (regresion:
+# data_lock retenido horas por un daemon huerfano). Se abren fds extra en
+# ESTE shell, se arranca otro daemon (los heredaria) y se inspecciona
+# /proc/<pid>/fd: ni rastro de los marcados, y solo 0,1,2+listener.
+exec 30>"$TMPD/fdmark30" 2>/dev/null || true
+exec 31>"$TMPD/fdmark31" 2>/dev/null || true
+"$BIN" --socket "$TMPD/br3.sock" --allowed-cmd /bin/echo >"$TMPD/s3.log" 2>&1 &
+SRV3=$!
+sleep 0.5
+if kill -0 "$SRV3" 2>/dev/null; then
+    leak=""
+    for f in /proc/$SRV3/fd/*; do
+        t="$(readlink "$f" 2>/dev/null || true)"
+        case "$t" in *fdmark*) leak="$leak $t";; esac
+    done
+    if test -z "$leak"; then
+        pass "daemon sin fds heredados"
+    else
+        fail "fds heredados: [$leak]"
+    fi
+    n3="$(ls /proc/$SRV3/fd 2>/dev/null | grep -c . || true)"
+    if test "${n3:-99}" -le 5; then
+        pass "daemon con $n3 fds (0,1,2+listener)"
+    else
+        fail "demasiados fds en daemon: $n3"
+    fi
+else
+    fail "daemon br3 no arranco"
+fi
+kill "$SRV3" 2>/dev/null || true
+exec 30>&- 2>/dev/null || true; exec 31>&- 2>/dev/null || true
+rm -f "$TMPD/br3.sock" "$TMPD/fdmark30" "$TMPD/fdmark31"
 
 echo "----"
 echo "FAIL=$FAIL"

@@ -3,9 +3,13 @@
 # Reglas: orden de campos fijo, arrays ordenados, avisos a stderr, stdout = un
 # solo documento JSON, exit igual que doctor en texto.
 # Schema mínimo: format=int, level=int, libc={kind,version}, kernel={arch,
-# release}, capacidades=bool, landlock={available,abi}, gpu={vendor,driver,
-# render_node}, nvidia={present,version,usable,reason}, kmods=[], dev={},
-# rootfs={}, fixes_available=[], fixes_applied=[], fixes=[] y signature={}.
+# release}, userns/overlayfs_rootless/mount_setattr/seccomp/cgroupv2=bool (+
+# sus _method string), landlock={available,abi}, gpu={vendor,driver,
+# render_node}, nvidia={present,version,usable,reason}, kmods=[], dev={dri,
+# nvidia,fuse}, rootfs={path,present,version}, fixes_available=[], fixes
+# (cada fix: {id,applicable,destructive,requires_root,reason,would_do,phase}
+# + opt_in? solo si aplica), fixes_applied=[] y signature={policy,
+# minisign_available,last_setup_verified}.
 # Añadir campos es compatible; renombrar o quitar no lo es.
 json_str() { # <texto> -> "texto" con \ " y controles escapados
     local s="${1//\\/\\\\}"
@@ -46,19 +50,26 @@ probe_userns() { # 1 si hay namespaces sin root (misma prueba que doctor)
 probe_overlayfs() ( # subshell: 1 si overlay rootless monta en userns, sin restos
     # El mount vive en el ns muerto del unshare: nunca cuelga en el host. El
     # EXIT trap queda confinado al subshell (cubre la muerte a mitad).
+    # --propagation private: sin el, bajo /tmp compartido el mount se propaga
+    # fuera del ns muerto (fuga + rm con Permission denied a stderr, que rompe
+    # el contrato "stdout JSON limpio, stderr solo avisos" de --json).
+    # chmod previo al rm: overlay deja work/work con modo 000 por diseno y el
+    # rm directo falla aunque el mount ya murio (visto en contenedor).
     command -v unshare >/dev/null 2>&1 || { echo 0; return 0; }
     local t
     t="$(mktemp -d 2>/dev/null || true)"
     [[ -n "$t" && -d "$t" ]] || { echo 0; return 0; }
-    trap 'rm -rf "${t:-}"' EXIT
+    trap 'umount "$t/m" 2>/dev/null; chmod -R u+rwX "$t" 2>/dev/null; rm -rf "${t:-}" 2>/dev/null' EXIT
     mkdir -p "$t/l" "$t/u" "$t/w" "$t/m" 2>/dev/null || { echo 0; return 0; }
     local o="lowerdir=$t/l,upperdir=$t/u,workdir=$t/w,userxattr"
-    if unshare -Urm mount -t overlay overlay -o "$o" "$t/m" 2>/dev/null; then
+    if unshare -Urm --propagation private mount -t overlay overlay -o "$o" "$t/m" 2>/dev/null; then
         echo 1
     else
         echo 0
     fi
-    rm -rf "${t:?}"
+    umount "$t/m" 2>/dev/null || true
+    chmod -R u+rwX "$t" 2>/dev/null || true
+    rm -rf "${t:?}" 2>/dev/null || true
     t="" # el EXIT trap queda idempotente
     return 0
 )
