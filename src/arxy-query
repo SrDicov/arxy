@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
+# shellcheck disable=SC2034 # split multi-binario: 00-head abre cada bundle y
+# sus globales no se usan en todos (bridge/help/run); va ANTES del set porque
+# tras un set solo vale el primer disable (quirk verificado);
+# test-surface.sh (B2) pinea el conjunto conocido para que no se cuelen muertas.
 # arxy — subsistema Arch minimalista para correr software glibc en cualquier distro.
 #
 # Un namespace bwrap muestra la raíz Arch como / y comparte recursos del host.
@@ -173,6 +177,20 @@ need_cmd() {
     for c in "$@"; do
         command -v "$c" >/dev/null 2>&1 || die "falta '$c' en el host (instalalo con tu gestor de paquetes)"
     done
+}
+
+# sed -E in-place portable: el `sed -i` GNU no existe en BSD (su -i exige
+# extension) y el comando `a` en una linea tampoco. Via temporal + cat:
+# preserva inode y permisos; solo escribe si sed sale 0 (rc de sed).
+sed_inplace() { # <expr> <fichero> : aplica; rc de sed
+    local expr="$1" file="$2" tmp
+    [[ -f "$file" ]] || return 1
+    tmp="$(mktemp "${TMPDIR:-/tmp}/.arxy-sed.XXXXXX")" || return 1
+    if sed -E "$expr" "$file" >"$tmp"; then
+        cat "$tmp" >"$file" && rm -f "$tmp"
+    else
+        rm -f "$tmp"; return 1
+    fi
 }
 
 # Solo PRIV_ENV_KEYS cruza la frontera sudo/doas; el prefijo ARXY_ no basta.
@@ -409,6 +427,9 @@ _userns_ok() { # userns funcional sin walk recursivo de montajes.
 }
 level() { # deja el nivel en _ARXY_LEVEL (memoizado por proceso)
     [[ -n "${_ARXY_LEVEL:-}" ]] && return 0
+    # Valor basura (p. ej. ARXY_LEVEL=3): autodetecta, no muere. Decision:
+    # una typo en el env no debe brickear la herramienta; la sonda es el
+    # default seguro (pineado en test-detect.sh).
     if [[ "${ARXY_LEVEL:-}" == 1 || "${ARXY_LEVEL:-}" == 2 ]]; then
         _ARXY_LEVEL="$ARXY_LEVEL"
     elif command -v bwrap >/dev/null 2>&1 && _userns_ok; then
@@ -569,7 +590,7 @@ data_sync() { # <paths...> : fsync best-effort; nunca falla setup
 _newest_first() { # <prefijo> : "$prefijo"* mas reciente primero (una linea)
     local p
     for p in "$1"*; do [[ -e "$p" ]] || continue
-        printf '%s\t%s\n' "$(stat -c %Y "$p" 2>/dev/null || echo 0)" "$p"
+        printf '%s\t%s\n' "$(stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || echo 0)" "$p"
     done | sort -rn | cut -f2-
 }
 staging_inventory() { # huerfanos de setup/rollback: "<accion>\t<path>"; pura
@@ -694,7 +715,9 @@ version_line() { # "url=... date=..." (ambos formatos; vacio si falta)
     fi
     echo "url=$u date=$d"
 }
-# TODO: deuda viva. Remover en v0.6.0 o cuando no haya instalaciones v0.1 activas.
+# Deuda viva (decision 2026-10-10): la migracion plano->JSON se CONSERVA aunque
+# pase v0.6.0. Cuesta ~15 lineas y protege instalaciones v0.1 sin aviso; quitarla
+# las dejaria con version ilegible sin pista. Reabrir solo con caso real.
 migrate_version_file() { # plano -> JSON atomico; idempotente; rc 0 (avisa)
     local f="$ARXY_VERSION_FILE"
     [[ -f "$f" ]] || return 0
@@ -776,11 +799,11 @@ cachy_activate() { # <v3|v4|znver4> : activa ese tier + [cachyos]; 1 si la image
     grep -q 'cachyos' "$conf" 2>/dev/null || return 1
     [[ -f "$ARXY_ROOT/etc/pacman.d/$ml" ]] || return 1
     # Architecture = auto: el stock solo acepta x86_64 y los tiers v3/v4 no.
-    sed -i -E 's@^\[(cachyos-(core-|extra-)?(v3|v4|znver4))\]@#[\1]@' "$conf" \
-    && sed -i -E 's@^Include = /etc/pacman\.d/(cachyos-v3-mirrorlist|cachyos-v4-mirrorlist)@#Include = /etc/pacman.d/\1@' "$conf" \
-    && sed -i -E "s@^#(\[(cachyos(-${tier}|-core-${tier}|-extra-${tier})?)\])@\1@" "$conf" \
-    && sed -i -E "s@^#(Include = /etc/pacman\.d/(cachyos-mirrorlist|${ml}))@\1@" "$conf" \
-    && sed -i -E 's@^#?Architecture[[:space:]]*=.*@Architecture = auto@' "$conf" \
+    sed_inplace 's@^\[(cachyos-(core-|extra-)?(v3|v4|znver4))\]@#[\1]@' "$conf" \
+    && sed_inplace 's@^Include = /etc/pacman\.d/(cachyos-v3-mirrorlist|cachyos-v4-mirrorlist)@#Include = /etc/pacman.d/\1@' "$conf" \
+    && sed_inplace "s@^#(\[(cachyos(-${tier}|-core-${tier}|-extra-${tier})?)\])@\1@" "$conf" \
+    && sed_inplace "s@^#(Include = /etc/pacman\.d/(cachyos-mirrorlist|${ml}))@\1@" "$conf" \
+    && sed_inplace 's@^#?Architecture[[:space:]]*=.*@Architecture = auto@' "$conf" \
     && { grep -q '^Architecture = auto' "$conf" 2>/dev/null || printf '\nArchitecture = auto\n' >>"$conf"; }
 }
 
@@ -816,6 +839,7 @@ cachy_migrate() { # <tier> : stanzas -> -Syy -> pacman [cachyos] -> -Syu -> rein
     clean_pkg_cache
     msg "CachyOS tier $tier activo y actualizado"
 }
+# shellcheck disable=SC2120 # cmd_* se despacha dinamicamente ("$_entry" "$@"): shellcheck no ve los args
 cmd_setup() {
     [[ $# -eq 0 ]] || die "uso: $PROG setup"
     need_root
@@ -1021,7 +1045,7 @@ cmd_gpu_stack() { # <gpu-amd|gpu-nvidia>
     if [[ ! -f "$ARXY_ROOT/etc/pacman.conf" ]]; then
         msg "aviso: sin pacman.conf en $ARXY_ROOT, omito gpu-stack" >&2; return 0
     fi
-    sed -i -E 's|^#?IgnorePkg[[:space:]]*=[[:space:]]*mesa|#IgnorePkg = mesa|' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
+    sed_inplace 's|^#?IgnorePkg[[:space:]]*=[[:space:]]*mesa|#IgnorePkg = mesa|' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
     # Sin --needed a proposito: mini y oficial comparten pkgname+version y
     # --needed lo daria por satisfecho. Solo reinstala si falta LLVM.
     local -a nc
@@ -1121,7 +1145,7 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
     # [multilib] para lib32-* (idempotente). Guard primero: imagenes frescas
     # ya traen la estanza activa y sin el duplicariamos el registro.
     grep -q '^\[multilib\]' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || \
-        sed -i -E '/^#\[multilib\]/,/^#?Include/s/^#//' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
+        sed_inplace '/^#\[multilib\]/,/^#?Include/s/^#//' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
     cmd_gpu_stack "arxy-gaming-$vendor" # mesa full idempotente (amd/intel/nvidia)
     [[ "${#off[@]}" -gt 0 ]] && cmd_install "${off[@]}"
     if [[ "${#aur[@]}" -gt 0 && -z "${ARXY_GAMING_AUR_DONE:-}" ]]; then
@@ -1207,8 +1231,13 @@ cmd_info() {
 cmd_list() {
     [[ $# -eq 0 ]] || die "uso: $PROG list"
     ensure_image
-    local exported line pkg
+    local exported line pkg q
     exported="$(grep -h '^X-Arxy-Pkg=' "$REAL_APPS"/arxy-*.desktop 2>/dev/null | cut -d= -f2- | sort -u || true)"
+    # Sin process substitution: su rc no se propaga y una db rota daria
+    # lista vacia con rc 0. Con captura el error sale (el vacio legitimo
+    # salta el bucle: <<<"" iteraria una vez con linea vacia).
+    q="$(run_pacman -Q "$@")" || return $?
+    [[ -n "$q" ]] || return 0
     while IFS= read -r line; do
         pkg="${line%% *}"
         if grep -qxF "$pkg" <<<"$exported" 2>/dev/null; then
@@ -1216,7 +1245,7 @@ cmd_list() {
         else
             echo "$line"
         fi
-    done < <(run_pacman -Q "$@")
+    done <<<"$q"
 }
 
 cmd_search() {
@@ -1252,9 +1281,13 @@ cmd_search_aur() {
 # Reglas: orden de campos fijo, arrays ordenados, avisos a stderr, stdout = un
 # solo documento JSON, exit igual que doctor en texto.
 # Schema mínimo: format=int, level=int, libc={kind,version}, kernel={arch,
-# release}, capacidades=bool, landlock={available,abi}, gpu={vendor,driver,
-# render_node}, nvidia={present,version,usable,reason}, kmods=[], dev={},
-# rootfs={}, fixes_available=[], fixes_applied=[], fixes=[] y signature={}.
+# release}, userns/overlayfs_rootless/mount_setattr/seccomp/cgroupv2=bool (+
+# sus _method string), landlock={available,abi}, gpu={vendor,driver,
+# render_node}, nvidia={present,version,usable,reason}, kmods=[], dev={dri,
+# nvidia,fuse}, rootfs={path,present,version}, fixes_available=[], fixes
+# (cada fix: {id,applicable,destructive,requires_root,reason,would_do,phase}
+# + opt_in? solo si aplica), fixes_applied=[] y signature={policy,
+# minisign_available,last_setup_verified}.
 # Añadir campos es compatible; renombrar o quitar no lo es.
 json_str() { # <texto> -> "texto" con \ " y controles escapados
     local s="${1//\\/\\\\}"
@@ -1295,19 +1328,26 @@ probe_userns() { # 1 si hay namespaces sin root (misma prueba que doctor)
 probe_overlayfs() ( # subshell: 1 si overlay rootless monta en userns, sin restos
     # El mount vive en el ns muerto del unshare: nunca cuelga en el host. El
     # EXIT trap queda confinado al subshell (cubre la muerte a mitad).
+    # --propagation private: sin el, bajo /tmp compartido el mount se propaga
+    # fuera del ns muerto (fuga + rm con Permission denied a stderr, que rompe
+    # el contrato "stdout JSON limpio, stderr solo avisos" de --json).
+    # chmod previo al rm: overlay deja work/work con modo 000 por diseno y el
+    # rm directo falla aunque el mount ya murio (visto en contenedor).
     command -v unshare >/dev/null 2>&1 || { echo 0; return 0; }
     local t
     t="$(mktemp -d 2>/dev/null || true)"
     [[ -n "$t" && -d "$t" ]] || { echo 0; return 0; }
-    trap 'rm -rf "${t:-}"' EXIT
+    trap 'umount "$t/m" 2>/dev/null; chmod -R u+rwX "$t" 2>/dev/null; rm -rf "${t:-}" 2>/dev/null' EXIT
     mkdir -p "$t/l" "$t/u" "$t/w" "$t/m" 2>/dev/null || { echo 0; return 0; }
     local o="lowerdir=$t/l,upperdir=$t/u,workdir=$t/w,userxattr"
-    if unshare -Urm mount -t overlay overlay -o "$o" "$t/m" 2>/dev/null; then
+    if unshare -Urm --propagation private mount -t overlay overlay -o "$o" "$t/m" 2>/dev/null; then
         echo 1
     else
         echo 0
     fi
-    rm -rf "${t:?}"
+    umount "$t/m" 2>/dev/null || true
+    chmod -R u+rwX "$t" 2>/dev/null || true
+    rm -rf "${t:?}" 2>/dev/null || true
     t="" # el EXIT trap queda idempotente
     return 0
 )

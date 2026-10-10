@@ -42,9 +42,9 @@ ensure_aur_env() {
             [[ "$t" == "strip" ]] && missing_tools+=("binutils") || missing_tools+=("$t")
         }
     done
-    # makepkg viene con pacman.
-    in_sys /usr/bin/makepkg --version >/dev/null 2>&1 || \
-        die "imagen rota: sin makepkg"
+    # makepkg viene con el paquete pacman: si falta se instala solo como el
+    # resto (la mini no siempre lo trae; antes moria con "imagen rota").
+    in_sys /usr/bin/makepkg --version >/dev/null 2>&1 || missing_tools+=("pacman")
     if [[ "${#missing_tools[@]}" -gt 0 ]]; then
         msg "herramientas AUR que faltan: ${missing_tools[*]}" >&2
         as_root "$ARXY_SELF" install "${missing_tools[@]}" >&2 || \
@@ -73,10 +73,10 @@ aur_build() { # <pkg> -> ruta paquete construido
     if [[ -n "${HAVE_PARU:-}" ]]; then
         in_bwrap /usr/bin/paru --noconfirm -G "$pkg" "$work_ns" >&2 2>/dev/null || \
         in_bwrap /usr/bin/git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$work_ns" >&2 || \
-            die "no existe en AUR: $pkg (revisa el nombre con '$PROG search-aur $pkg')"
+            die "no existe en AUR: $pkg (¿red caida? si no, revisa el nombre con '$PROG search-aur $pkg')"
     else
         in_bwrap /usr/bin/git clone --depth 1 "https://aur.archlinux.org/$pkg.git" "$work_ns" >&2 || \
-            die "no existe en AUR: $pkg (revisa el nombre con '$PROG search-aur $pkg')"
+            die "no existe en AUR: $pkg (¿red caida? si no, revisa el nombre con '$PROG search-aur $pkg')"
     fi
     # Instalar dependencias oficiales antes de invocar makepkg.
     if [[ -f "$work_host/.SRCINFO" ]]; then

@@ -12,7 +12,7 @@ cmd_gpu_stack() { # <gpu-amd|gpu-nvidia>
     if [[ ! -f "$ARXY_ROOT/etc/pacman.conf" ]]; then
         msg "aviso: sin pacman.conf en $ARXY_ROOT, omito gpu-stack" >&2; return 0
     fi
-    sed -i -E 's|^#?IgnorePkg[[:space:]]*=[[:space:]]*mesa|#IgnorePkg = mesa|' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
+    sed_inplace 's|^#?IgnorePkg[[:space:]]*=[[:space:]]*mesa|#IgnorePkg = mesa|' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
     # Sin --needed a proposito: mini y oficial comparten pkgname+version y
     # --needed lo daria por satisfecho. Solo reinstala si falta LLVM.
     local -a nc
@@ -112,7 +112,7 @@ cmd_gaming() { # [--dry-run] [nvidia|amd|intel] : rama explicita = override
     # [multilib] para lib32-* (idempotente). Guard primero: imagenes frescas
     # ya traen la estanza activa y sin el duplicariamos el registro.
     grep -q '^\[multilib\]' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || \
-        sed -i -E '/^#\[multilib\]/,/^#?Include/s/^#//' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
+        sed_inplace '/^#\[multilib\]/,/^#?Include/s/^#//' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null || true
     cmd_gpu_stack "arxy-gaming-$vendor" # mesa full idempotente (amd/intel/nvidia)
     [[ "${#off[@]}" -gt 0 ]] && cmd_install "${off[@]}"
     if [[ "${#aur[@]}" -gt 0 && -z "${ARXY_GAMING_AUR_DONE:-}" ]]; then

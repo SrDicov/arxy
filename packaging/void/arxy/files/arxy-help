@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
+# shellcheck disable=SC2034 # split multi-binario: 00-head abre cada bundle y
+# sus globales no se usan en todos (bridge/help/run); va ANTES del set porque
+# tras un set solo vale el primer disable (quirk verificado);
+# test-surface.sh (B2) pinea el conjunto conocido para que no se cuelen muertas.
 # arxy — subsistema Arch minimalista para correr software glibc en cualquier distro.
 #
 # Un namespace bwrap muestra la raíz Arch como / y comparte recursos del host.
@@ -173,6 +177,20 @@ need_cmd() {
     for c in "$@"; do
         command -v "$c" >/dev/null 2>&1 || die "falta '$c' en el host (instalalo con tu gestor de paquetes)"
     done
+}
+
+# sed -E in-place portable: el `sed -i` GNU no existe en BSD (su -i exige
+# extension) y el comando `a` en una linea tampoco. Via temporal + cat:
+# preserva inode y permisos; solo escribe si sed sale 0 (rc de sed).
+sed_inplace() { # <expr> <fichero> : aplica; rc de sed
+    local expr="$1" file="$2" tmp
+    [[ -f "$file" ]] || return 1
+    tmp="$(mktemp "${TMPDIR:-/tmp}/.arxy-sed.XXXXXX")" || return 1
+    if sed -E "$expr" "$file" >"$tmp"; then
+        cat "$tmp" >"$file" && rm -f "$tmp"
+    else
+        rm -f "$tmp"; return 1
+    fi
 }
 
 # Solo PRIV_ENV_KEYS cruza la frontera sudo/doas; el prefijo ARXY_ no basta.

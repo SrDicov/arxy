@@ -35,7 +35,9 @@ LIB_DST="$DESTDIR$PREFIX/lib/arxy"
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "falta '$1' en el host" >&2; exit 1; }; }
 
-# Dependencias de runtime de arxy (mismas que el template xbps + sha256sum).
+# Dependencias de runtime de arxy. Direccion documentada (ver test-packaging.sh):
+# el template xbps las cubre TODAS y anade desktop-file-utils/minisign/sudo;
+# aqui solo las duras (+ sha256sum para verificar descargas a mano).
 for c in bash bwrap curl tar zstd xz gzip file sha256sum; do
     need_cmd "$c"
 done

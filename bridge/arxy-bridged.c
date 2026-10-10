@@ -676,7 +676,19 @@ static int secure_listen(const char *path) {
 
 static void onterm(int s) { (void)s; if (g_sockpath) unlink(g_sockpath); _exit(0); }
 
+// Higiene de fds: el daemon nace de `host-bridge --daemon` (hijo del CLI) y
+// hereda sus fds (visto: data_lock retenido horas por un daemon huerfano; el
+// lado bash ya los cierra, esto es defensa en profundidad). Cerrar todo >=3
+// al arrancar: el listener aun no existe; 0/1/2 se conservan (el --daemon ya
+// redirigio 1/2 al blog).
+static void close_stray_fds(void) {
+    long mx = sysconf(_SC_OPEN_MAX);
+    if (mx < 0 || mx > 65536) mx = 65536;
+    for (int fd = 3; fd < mx; fd++) close(fd);
+}
+
 int main(int argc, char **argv) {
+    close_stray_fds();
     const char *sock = NULL;
     for (int i = 1; i < argc; i++) {
         if ((!strcmp(argv[i], "--socket")) && i + 1 < argc) sock = argv[++i];

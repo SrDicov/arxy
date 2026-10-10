@@ -12,7 +12,7 @@ cmd_quickstart() { # el siguiente paso segun estado (para quien no lee READMEs)
         return 0
     fi
     local n g
-    n="$(ls "$REAL_APPS"/arxy-*.desktop 2>/dev/null | wc -l)"
+    n="$(ls "$REAL_APPS"/arxy-*.desktop 2>/dev/null | wc -l | tr -d '[:space:]')"
     if [[ "$n" -eq 0 ]]; then
         echo "  $PROG install <app>    # p. ej. $PROG install firefox"
     else
@@ -42,6 +42,7 @@ doctor_gpu() {
 # Sonda pura: array asociativo con status, reason, action, opt_in
 # (ok | todo | info | skip). Sin delimitadores para serializar.
 _fix_result() { # <array> <status> <reason> [action] [opt-in]
+    # shellcheck disable=SC2034 # param de salida por nameref (solo-escritura); test-surface.sh (B2) compensa
     local -n target="$1"
     target=([status]="$2" [reason]="$3" [action]="${4:-}" [opt_in]="${5:-}")
 }
@@ -160,7 +161,9 @@ fixes_json() { # array "fixes" para --json (fixes_available sigue siendo [ids])
 fix_apply() { # <fix-id>: 0 aplicado, 1 fallo, 2 no implementado
     case "$1" in
         hold-mesa)
-            sed -i '/^\[options\]/a IgnorePkg   = mesa' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null \
+            # Sin `a` en una linea (BSD sed lo exige con backslash+newline):
+            # sustitucion con \n, misma insercion tras [options].
+            sed_inplace 's@^(\[options\])@\1\nIgnorePkg   = mesa@' "$ARXY_ROOT/etc/pacman.conf" 2>/dev/null \
                 && mesa_hold_active
             ;;
         staging-cleanup)

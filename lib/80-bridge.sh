@@ -105,8 +105,14 @@ ensure_bridge_daemon() { # arranca si no hay vivo (best-effort: nunca falla run)
     flock -w 10 9 2>/dev/null || { exec 9>&-; return 0; } # otro arranca: el sigue sin socket esta vez
     bridge_pid_alive "$pidf" && { exec 9>&-; return 0; } # re-check tras lock
     # FD 9 se cierra ANTES del exec bwrap del llamador (si sobreviviera, el
-    # sandbox heredaria el lock hasta que la app muera).
-    "$ARXY_SELF" host-bridge --daemon >/dev/null 2>&1
+    # sandbox heredaria el lock hasta que la app muera). El daemon TAMPOCO
+    # debe heredar locks: es inmortal y retendria el data_lock si nacio de
+    # un `run` con ensure_image (setup lo toma y run_in auto-arranca; visto:
+    # daemon huerfano reteniendo /tmp/.lock horas). Subshell: el padre
+    # conserva sus locks, el hijo los cierra antes del exec.
+    ( exec 9>&- 2>/dev/null
+      [[ -n "${ARXY_LOCK_FD:-}" ]] && exec {ARXY_LOCK_FD}>&- 2>/dev/null
+      exec "$ARXY_SELF" host-bridge --daemon >/dev/null 2>&1 )
     local rc=$?
     exec 9>&-
     return $rc

@@ -149,6 +149,9 @@ _userns_ok() { # userns funcional sin walk recursivo de montajes.
 }
 level() { # deja el nivel en _ARXY_LEVEL (memoizado por proceso)
     [[ -n "${_ARXY_LEVEL:-}" ]] && return 0
+    # Valor basura (p. ej. ARXY_LEVEL=3): autodetecta, no muere. Decision:
+    # una typo en el env no debe brickear la herramienta; la sonda es el
+    # default seguro (pineado en test-detect.sh).
     if [[ "${ARXY_LEVEL:-}" == 1 || "${ARXY_LEVEL:-}" == 2 ]]; then
         _ARXY_LEVEL="$ARXY_LEVEL"
     elif command -v bwrap >/dev/null 2>&1 && _userns_ok; then

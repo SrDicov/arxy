@@ -8,8 +8,13 @@ cmd_info() {
 cmd_list() {
     [[ $# -eq 0 ]] || die "uso: $PROG list"
     ensure_image
-    local exported line pkg
+    local exported line pkg q
     exported="$(grep -h '^X-Arxy-Pkg=' "$REAL_APPS"/arxy-*.desktop 2>/dev/null | cut -d= -f2- | sort -u || true)"
+    # Sin process substitution: su rc no se propaga y una db rota daria
+    # lista vacia con rc 0. Con captura el error sale (el vacio legitimo
+    # salta el bucle: <<<"" iteraria una vez con linea vacia).
+    q="$(run_pacman -Q "$@")" || return $?
+    [[ -n "$q" ]] || return 0
     while IFS= read -r line; do
         pkg="${line%% *}"
         if grep -qxF "$pkg" <<<"$exported" 2>/dev/null; then
@@ -17,7 +22,7 @@ cmd_list() {
         else
             echo "$line"
         fi
-    done < <(run_pacman -Q "$@")
+    done <<<"$q"
 }
 
 cmd_search() {
