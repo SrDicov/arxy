@@ -19,6 +19,9 @@ conf_files="/etc/arxy/arxy.conf"
 
 do_install() {
 	vbin ${FILESDIR}/arxy
+	for _b in run pkg query desktop setup maint doctor bridge help; do
+		vbin ${FILESDIR}/arxy-$_b
+	done
 	ln -sf arxy ${DESTDIR}/usr/bin/axy
 	vinstall ${FILESDIR}/arxy.conf 644 etc/arxy/
 	vinstall ${FILESDIR}/arxy.pub 644 etc/arxy/

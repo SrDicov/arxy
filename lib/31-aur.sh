@@ -17,7 +17,7 @@ cmd_install_aur() {
             failed+=("$p")
             continue
         fi
-        if ! as_root "$SELF" __install-file "$f"; then
+        if ! as_root "$ARXY_SELF" __install-file "$f"; then
             msg "error: fallo al instalar $p (sigo con el resto)" >&2
             failed+=("$p")
             continue
@@ -47,7 +47,7 @@ ensure_aur_env() {
         die "imagen rota: sin makepkg"
     if [[ "${#missing_tools[@]}" -gt 0 ]]; then
         msg "herramientas AUR que faltan: ${missing_tools[*]}" >&2
-        as_root "$SELF" install "${missing_tools[@]}" >&2 || \
+        as_root "$ARXY_SELF" install "${missing_tools[@]}" >&2 || \
             die "no pude instalar herramientas AUR '${missing_tools[*]}' (mira el error de pacman de arriba)"
     fi
     if in_sys /usr/bin/paru --version >/dev/null 2>&1; then
@@ -93,7 +93,7 @@ aur_build() { # <pkg> -> ruta paquete construido
         if [[ "${#missing[@]}" -gt 0 ]]; then
             # stdout reservado a la ruta del paquete final.
             msg "deps de $pkg: ${missing[*]}" >&2
-            as_root "$SELF" install "${missing[@]}" >&2 || \
+            as_root "$ARXY_SELF" install "${missing[@]}" >&2 || \
                 msg "aviso: alguna dep no esta en repos oficiales; sigo y que decida makepkg" >&2
         fi
     fi

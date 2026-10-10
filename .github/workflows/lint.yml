@@ -14,21 +14,21 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
 
-      - name: "regenerar src/arxy desde lib/ (byte-identico)"
+      - name: "regenerar src/arxy* desde lib/ (sin cambios pendientes)"
         run: |
-          make src/arxy
-          git diff --exit-code src/arxy
+          make build
+          test -z "$(git status --porcelain -- src/ packaging/void/arxy/files/ config/)"
           echo REGEN_OK
 
       - name: bash -n
-        run: bash -n src/arxy && bash -n install.sh && bash -n lib/*.sh && echo BASHN_OK
+        run: bash -n src/arxy* && bash -n install.sh && bash -n lib/*.sh && echo BASHN_OK
 
       - name: shellcheck (cero warnings)
-        run: shellcheck -S warning src/arxy install.sh && echo SHELLCHECK_OK
+        run: shellcheck -S warning src/arxy* install.sh && echo SHELLCHECK_OK
 
       - name: packaging/void en sincronia con src/ y config/
         run: |
-          cmp src/arxy packaging/void/arxy/files/arxy
+          for f in src/arxy*; do cmp "$f" "packaging/void/arxy/files/$(basename "$f")"; done
           cmp config/arxy.conf packaging/void/arxy/files/arxy.conf
           cmp config/arxy.pub packaging/void/arxy/files/arxy.pub
           echo SYNC_OK

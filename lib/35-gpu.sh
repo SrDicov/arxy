@@ -112,8 +112,9 @@ nvidia_mounts() { # "host<TAB>guest" (libs + ICDs + devices; "" = nada)
     done < <(nvidia_icds)
     while IFS= read -r n; do
         [[ -n "$n" ]] || continue
-        printf '%s\t%s\n' "$n" "$n"
-    done < <(detect_dev_nodes 2>/dev/null | grep nvidia || true)
+        # Filtro en bash (equivale a grep nvidia; ahorra un fork por run).
+        case "$n" in *nvidia*) printf '%s\t%s\n' "$n" "$n" ;; esac
+    done < <(detect_dev_nodes 2>/dev/null || true)
     return 0
 }
 

@@ -106,7 +106,7 @@ ensure_bridge_daemon() { # arranca si no hay vivo (best-effort: nunca falla run)
     bridge_pid_alive "$pidf" && { exec 9>&-; return 0; } # re-check tras lock
     # FD 9 se cierra ANTES del exec bwrap del llamador (si sobreviviera, el
     # sandbox heredaria el lock hasta que la app muera).
-    "$SELF" host-bridge --daemon >/dev/null 2>&1
+    "$ARXY_SELF" host-bridge --daemon >/dev/null 2>&1
     local rc=$?
     exec 9>&-
     return $rc

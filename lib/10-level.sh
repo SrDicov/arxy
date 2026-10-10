@@ -13,6 +13,9 @@ host_path_visible() { # <ruta>: visible con la misma ruta dentro del namespace
 
 bwrap_base() {
     local d resolv
+    # readlink una vez por proceso (bwrap_base corre en cada run/in_bwrap).
+    [[ -n "${_ARXY_RESOLV:-}" ]] || \
+        _ARXY_RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"
     printf '%s\n' --bind "$ARXY_ROOT" /
     # --bind es recursivo; --bind-try tolera orígenes inexistentes.
     for d in "${VISIBLE_DIRS[@]}"; do
@@ -33,7 +36,7 @@ bwrap_base() {
         --proc /proc \
         --ro-bind-try /sys /sys \
         --bind / /host
-    resolv="$(readlink -f /etc/resolv.conf 2>/dev/null || echo /etc/resolv.conf)"
+    resolv="$_ARXY_RESOLV"
     if [[ -f "$resolv" ]]; then
         printf '%s\n' --ro-bind "$resolv" /etc/resolv.conf
     else
@@ -67,7 +70,8 @@ run_in() {
     _nvi="$(nvidia_icds 2>/dev/null || true)"
     # musl: el userspace grafico del host no sirve en el rootfs glibc; fuera
     # libs+ICDs (los devices ya vienen con --dev-bind /dev de la base).
-    if [[ "$(detect_libc 2>/dev/null || true)" == musl ]]; then _nvm=""; _nvi=""; fi
+    # detect_libc solo si hay algo que descartar (ahorra subshell+ldd).
+    if [[ -n "$_nvm$_nvi" && "$(detect_libc 2>/dev/null || true)" == musl ]]; then _nvm=""; _nvi=""; fi
     if [[ -n "$_nvm$_nvi" ]]; then
         # bwrap procesa en orden: crear destinos antes de bindear bibliotecas.
         b+=(--dir /usr/lib/arxy-nvidia/lib64 --dir /usr/lib/arxy-nvidia/lib32)
@@ -134,11 +138,20 @@ run_pacman() {
 }
 
 # --- niveles: 1 = bwrap; 2 = ld-linux para run y chroot para mutaciones.
+_userns_ok() { # userns funcional sin walk recursivo de montajes.
+    # Misma sonda que doctor/probe_userns (unshare primero, bwrap despues):
+    # el bwrap --ro-bind / / de antes recorria todos los puntos de montaje
+    # en cada invocacion. Sin unshare se conserva la sonda bwrap.
+    if command -v unshare >/dev/null 2>&1 && unshare --user --map-root-user true 2>/dev/null; then
+        return 0
+    fi
+    bwrap --ro-bind / / true 2>/dev/null
+}
 level() { # deja el nivel en _ARXY_LEVEL (memoizado por proceso)
     [[ -n "${_ARXY_LEVEL:-}" ]] && return 0
     if [[ "${ARXY_LEVEL:-}" == 1 || "${ARXY_LEVEL:-}" == 2 ]]; then
         _ARXY_LEVEL="$ARXY_LEVEL"
-    elif command -v bwrap >/dev/null 2>&1 && bwrap --ro-bind / / true 2>/dev/null; then
+    elif command -v bwrap >/dev/null 2>&1 && _userns_ok; then
         _ARXY_LEVEL=1
     else
         _ARXY_LEVEL=2
