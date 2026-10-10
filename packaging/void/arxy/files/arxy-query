@@ -15,7 +15,7 @@ set -uo pipefail
 HOME="${HOME:-/root}"
 export LC_ALL=C
 
-ARXY_VERSION="0.6.3"
+ARXY_VERSION="0.6.5"
 PROG="arxy"
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 # Split multi-binario: el shim exporta ARXY_SELF (ruta al shim) y ARXY_CMD

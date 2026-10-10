@@ -1,5 +1,37 @@
 # Changelog de arxy
 
+## [0.6.5] - 2026-10-10
+
+Validación total en Chimera/musl + Intel real (rama `testing`):
+portabilidad, cobertura nueva y endurecimiento del bridge.
+
+### Corregido
+
+- Portabilidad BSD (sed/stat/wc): `sed -i` GNU rompía `cachy_activate`,
+  el fix `hold-mesa` y los holds de `30-package.sh`; nuevo helper
+  `sed_inplace()` + fallbacks `du -s`×512 y `stat -f`. `cmd_list` ya no
+  traga errores de db (rc se propaga; vacío legítimo sigue rc 0).
+- El daemon heredaba fds del padre: un `run` sin imagen (setup toma
+  `data_lock` + auto-arranque) dejaba el lock retenido horas. El spawn
+  cierra locks en el hijo + `close_stray_fds()` al arrancar el daemon.
+- `probe_overlayfs` fugaba mounts, metía ruido en stderr y fallaba el
+  rm (workdir modo 000): `--propagation private` + umount + chmod previo.
+- `ensure_aur_env` auto-instala `makepkg` (vía paquete `pacman`) como el
+  resto del toolchain en vez de morir con imagen rota.
+- `quickstart` mostraba el conteo con relleno BSD.
+- `make lint` verde tras el split: disables estructurales SC2034/SC2120
+  documentados + tripwire B2 de globales muertas en `test-surface.sh`.
+
+### Añadido
+
+- 9 suites nuevas (PLAN-TESTING §6): surface, query, quickstart, dedup,
+  clean, lock, perf, install-sh, packaging; schema anidado total en
+  doctor-json; casos L2 extra en export-one; pin de `ARXY_LEVEL` basura.
+- Vectores de regresión: T24 (locks no filtrados al daemon) y vector 22
+  del bridge (sin fds heredados).
+- Toolchain verificada en musl: `make bridge` limpio con gcc 16,
+  `bridge/test-bridge.sh` ALL PASS, Iris L1+L2 en HW real.
+
 ## [0.6.3] - 2026-09-27
 
 Migración CachyOS funcional con la imagen con marker (el 0.6.2 la

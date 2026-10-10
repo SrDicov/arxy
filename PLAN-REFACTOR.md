@@ -4,6 +4,9 @@
 Fase 3 bloqueada por toolchain (sin headers libc: no compila C aquí);
 Fase 4 evaluada (ver §8: verificar-minisign ya existe; externalizar
 listas gaming se rechaza con motivos).
+**Sesión cont. 2026-10-10: portabilidad BSD, fix cmd_list, 9 tests nuevos
+(PLAN-TESTING §6+§10), auditoría total de lib/, 3 decisiones de producto
+cerradas.** Detalle al final de §8.
 
 La reescritura a Rust (`plan`, fichero sin formato en la raíz) queda
 **diferida**. Este plan la fusiona con el informe suckless/Unix-like y se
@@ -288,3 +291,88 @@ byte a byte se verificó con `sha256` vía python en vez de `cmp`.
   (fork+parseo extra; las funciones ya son puras e inyectables).
 - Barrido `sed`/`awk` fuera del hot path y migración `dash`: rechazado
   (Fase 0: sin medición no hay cambio; §0: Bash 4.4 es contrato).
+
+**Sesión cont. 2026-10-10 — portabilidad, auditoría y decisiones.**
+Contenedor distinto al de arriba (uid 1000, sin root/sudo/make/cc/unshare/
+dash; CON minisign, cmp, diff, flock, bwrap con userns OK; userland BSD:
+sed/stat/wc estilo FreeBSD). Base: 20 OK / 10 SKIP / 7 FAIL.
+
+- Portabilidad (bugs reales, no ambientales): el `sed -i` GNU rompía
+  `cachy_activate`, el fix `hold-mesa` y los holds de `30-package.sh`
+  (estos últimos enmascarados por `|| true`) con sed BSD → helper
+  `sed_inplace()` en `00-head.sh` + reescritura del `a` en una línea como
+  `s` con `\n`; `_gc_bytes` con fallback `du -s`×512; fallbacks `stat -f`
+  en `20-state.sh`/`35-gpu.sh`; en tests: `wc -l` (relleno BSD),
+  `stat -c` (fallback `-f`), `sed -i` (temporal+cat). Tras ello:
+  cachy/gc/staging/split-brain/signature/hw-json/version TODO_OK.
+- `cmd_list` tragaba errores de db (`< <(run_pacman)` no propaga rc: db
+  rota daba lista vacía rc 0) → captura en variable con `|| return`
+  (`test-query.sh` lo pinea: db rota = rc!=0, vacío legítimo = rc 0).
+- Flakes con MECANISMO (misma clase que el gotcha pipefail de `AGENTS.md`):
+  `prod | grep -q` donde el consumidor cierra antes y el productor muere
+  con SIGPIPE=141 bajo pipefail (test-query RPC, test-pkgbuild-syntax) →
+  drenar stdin en stubs / capturar y grepear después. Barrido de todos los
+  `| grep -q` en tests con pipefail activo (staging, bundle, detect,
+  migrate, sig-policy, split-brain, pkgbuild) → captura o herestring.
+  `lib/` limpio (cada sitio enmascara con `|| true` o captura el valor).
+- Decisiones de producto (hallazgos §9 de PLAN-TESTING, cerrados):
+  `ARXY_LEVEL` basura → autodetecta (comentario en `level()` + pin en
+  test-detect); TODO legacy v0.1 → SE CONSERVA (comentario re-datado:
+  barato, protege installs viejas); deps install.sh → comentario con la
+  dirección documentada (test-packaging.sh la pinea).
+- Auditoría total de `lib/` (50-run, 30-package, 31-aur, 41-desktop,
+  35-gpu, 60-detect, 61-doctor, 62-json, 80-bridge, 20-state, 21-setup,
+  10-level): sin más bugs. fd 9 del lock heredado por el daemon es inocuo
+  (su vida útil == vida del daemon); `merror` no cierra (close explícito,
+  sin doble-close); `capacidades=bool` del comentario del schema no existía
+  en el emisor → comentario corregido (manda el código) + schema anidado
+  pineado en test-doctor-json.
+- AUR: el die de clone fallido menciona red (antes solo culpaba al nombre).
+- Fase 3 sigue bloqueada aquí (tampoco hay `cc` en este contenedor).
+
+**Sesión 2026-10-10 (cont. 2) — toolchain real, lint roto por el split,
+bug de fd heredado.**
+Con root (doas passwordless): repos Chimera configurados +
+`gmake gcc musl-devel musl-bsd-headers libatomic-chimera{,-devel}
+util-linux-ns jq` + symlink `/usr/bin/cc` + shellcheck 0.10.0 estático
+(no hay dash en repos; `sh` es un binario de 204KB sin paquete dueño).
+
+- `make bridge` compila limpio (`-Wall -Wextra -Werror`, gcc 16 + musl);
+  `bridge/test-bridge.sh` ALL PASS. `make lint` FALLABA (22 warnings
+  estructurales del split, preexistentes en HEAD: SC2034 en bridge/help/
+  run + SC2120 cmd_setup + SC2034 nameref): el split nunca pasó shellcheck
+  (CI no corrió esos commits). Fix: disables documentados en fragmentos
+  (00-head antes del `set`, resto en línea previa) + tripwire B2 en
+  test-surface (conjuntos de globales muertas por bundle). Hallazgos de la
+  saga: `enable=` no existe para códigos normales (SC1125), trailing tras
+  código da SC1126, el motivo no puede empezar por `# shellcheck`
+  (SC1073), y un solo disable tras `set` solo cubre el primer caso
+  (quirk; por eso el de 00-head va antes del `set`). `make lint` verde.
+- BUG REAL cazado por test-devices: `run` sin imagen → ensure_image →
+  setup toma `data_lock` → run_in auto-arranca el daemon, que HEREDA el
+  fd del lock y lo retiene horas (daemon root en /tmp/arxy-bridge-0.sock
+  con fd 10 → /tmp/.lock; todo lo posterior moria con "otra operacion en
+  curso"). Fix en dos capas: (1) `ensure_bridge_daemon` spawnea en
+  subshell cerrando fd 9 + `ARXY_LOCK_FD` (el padre conserva); (2) el
+  daemon cierra todo fd ≥3 al arrancar (`close_stray_fds`, defensa en
+  profundidad). Regresiones: T24 en test-host-bridge (hijo sin locks,
+  padre conserva) + vector 22 en bridge/test-bridge.sh (4 fds, sin
+  heredados). Análisis: ningún path actual spawnea con lock tomado salvo
+  este (run_in/bridge_env_l2 solo viven sin lock); hijos transitorios
+  (su/makepkg) son inocuos.
+- `probe_overlayfs` con unshare real: montaba sin `--propagation private`
+  (fuga en /tmp compartido), nunca hacía umount, rm ruidoso a stderr
+  (rompía "stderr limpio" de --json) y overlay deja work/ con modo 000
+  (rm directo falla aun muerto el mount). Fix: `--propagation private` +
+  umount + `chmod -R u+rwX` + rms silenciados; verificado 0 fugas ×3.
+- Mini sin `makepkg` → `ensure_aur_env` moría ("imagen rota") en vez de
+  auto-instalar como el resto del toolchain: ahora añade `pacman` a
+  missing_tools (gaming-real en mini lo necesitaba; ningún test lo
+  pineaba). AUR probado en vivo con `paru-bin` (~15MB): toolchain +
+  build + install + export OK (su `libalpm.so.15` es drift upstream del
+  paquete, no de arxy).
+- Incidente sin atribuir: `/home/dicov/arxy-l4/image.tar.zst` (134MB) y
+  `$ROOT/dev/` desaparecieron ~02:38 sin rastro en ningún `rm` del repo
+  (auditoría exhaustiva de todos los rm: acotados). Tarball re-descargado
+  y verificado; diseño exonerado (setup fresco → `dev/` existe y user-run
+  va inmediato).
