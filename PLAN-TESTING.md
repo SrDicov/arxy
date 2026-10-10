@@ -299,3 +299,19 @@ Todo con `ARXY_ROOT` aislado (`/home/dicov/arxy-l4`) salvo lo indicado.
   en claro, no en silencio). gaming-real queda SKIP documentado.
 - Regresiones del bug fd-heredado: T24 + vector 22 (ver PLAN-REFACTOR
   §8); el escenario original (devices) verde tras el fix.
+
+## 12. One-liner `install-remote.sh` (2026-10-10)
+
+Bootstrap POSIX-sh (corre sin bash) estilo `curl .. | sudo bash`: detecta
+distro/PM/elevador/arch, instala deps por PM sin morir por un nombre
+(`apk: gcc musl-dev musl-devel` cubre Alpine+Chimera; `tar/gzip/coreutils`
+fallan en Chimera y los da `chimerautils`), compila el daemon (el tarball
+no lo trae y con cc `install.sh` moría: hallazgo del e2e), setup (repos
+según CPU dentro), update completo y verificación (version + run real +
+doctor). Idempotente; `--check` solo informa; env ARXY_REF/REPO/TARBALL/
+PREFIX/DESTDIR/ROOT/IMAGE_URL/SHA/POLICY.
+Probado e2e en Chimera como usuario con `sh` (elevación doas): firma
+válida, update, run, **doctor limpio**, segunda pasada rc 0.
+`test-remote-install.sh` pinea --help/flags/--check, matriz de 8
+gestores con stubs y puerta aarch64 (el e2e pesado queda manual aquí).
+En el gate: `make lint` + CI `lint.yml` lo cubren (bash -n + shellcheck).

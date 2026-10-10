@@ -21,10 +21,10 @@ jobs:
           echo REGEN_OK
 
       - name: bash -n
-        run: bash -n src/arxy* && bash -n install.sh && bash -n lib/*.sh && echo BASHN_OK
+        run: bash -n src/arxy* && bash -n install.sh install-remote.sh && bash -n lib/*.sh && echo BASHN_OK
 
       - name: shellcheck (cero warnings)
-        run: shellcheck -S warning src/arxy* install.sh && echo SHELLCHECK_OK
+        run: shellcheck -S warning src/arxy* install.sh install-remote.sh && echo SHELLCHECK_OK
 
       - name: packaging/void en sincronia con src/ y config/
         run: |

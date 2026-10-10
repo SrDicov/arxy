@@ -12,6 +12,13 @@ layers.
 
 ## Install
 
+One line, any distro (installs dependencies, arxy, the image and updates
+everything; see `install-remote.sh --help` for options):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SrDicov/arxy/main/install-remote.sh | sudo bash
+```
+
 From source, on any distro:
 
 ```bash

@@ -118,11 +118,11 @@ bridge: bridge/arxy-bridged
 build: $(BINS)
 
 check: build
-	bash -n src/arxy* install.sh
+	bash -n src/arxy* install.sh install-remote.sh
 
 lint: check
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck -S warning src/arxy* install.sh; \
+		shellcheck -S warning src/arxy* install.sh install-remote.sh; \
 	else \
 		echo "SKIP: shellcheck no esta instalado"; \
 	fi
